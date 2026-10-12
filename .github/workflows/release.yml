@@ -1,0 +1,103 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  python-packages:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install build
+      - run: python -m build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: python-packages
+          path: dist/*
+
+  binaries:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-22.04, target: linux_amd64 }
+          - { os: ubuntu-22.04-arm, target: linux_arm64 }
+          - { os: macos-13, target: macOS_amd64 }
+          - { os: macos-14, target: macOS_arm64 }
+          - { os: windows-2022, target: windows_amd64 }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install build deps
+        run: |
+          pip install . pyinstaller
+        env:
+          PIP_EXTRA_INDEX_URL: ""
+      - name: Install windows-curses (windows only)
+        if: runner.os == 'Windows'
+        run: pip install windows-curses
+      - name: Build binary
+        run: pyinstaller --onefile --name zionstats --clean -y run.py
+      - name: Smoke (POSIX)
+        if: runner.os != 'Windows'
+        run: ./dist/zionstats --version
+      - name: Smoke (Windows)
+        if: runner.os == 'Windows'
+        run: dist\zionstats.exe --version
+      - name: Zip
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          mkdir -p release
+          if [ -f dist/zionstats.exe ]; then
+            zip -j "release/zionstats_${VERSION}_${{ matrix.target }}.zip" dist/zionstats.exe
+          else
+            zip -j "release/zionstats_${VERSION}_${{ matrix.target }}.zip" dist/zionstats
+          fi
+          cp README.md LICENSE CHANGELOG.md release/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bin-${{ matrix.target }}
+          path: release/*
+
+  publish:
+    needs: [python-packages, binaries]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Collect release files
+        run: |
+          mkdir -p release
+          find artifacts -type f | while read f; do cp "$f" release/; done
+          cd release
+          sha256sum * > checksums.txt
+          ls -la
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release/*.zip
+            release/*.whl
+            release/*.tar.gz
+            release/checksums.txt
+          body: |
+            See [CHANGELOG.md](https://github.com/athulkrishnan/zionstats/blob/main/CHANGELOG.md).
+
+            Prefer pip? `pip install zionstats` (from PyPI) or
+            `pip install git+https://github.com/athulkrishnan/zionstats.git`.
+
+            Binaries are self-contained (bundled Python). They still need the
+            **NVIDIA driver** for live metrics; without a GPU use `--demo`.
+            Prebuilt targets: linux amd64/arm64, macOS amd64/arm64, windows
+            amd64. Other platforms: `pip install` from source.

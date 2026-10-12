@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+
+# tuya credential files (local keys, API secrets) -- never commit
+tinytuya.json
+devices.json
+snapshot.json
+tuya-raw.json

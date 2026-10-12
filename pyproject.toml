@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "zionstats"
+version = "0.3.0"
+description = "A btop-grade NVIDIA GPU observatory -- dense, colorful, insight-first"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { file = "LICENSE" }
+authors = [{ name = "Athul Krishnan" }]
+keywords = ["nvidia", "gpu", "monitor", "cuda", "tui", "nvml", "btop", "nvitop"]
+classifiers = [
+    "Environment :: Console :: Curses",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Topic :: System :: Monitoring",
+    "Topic :: Software Development :: Debuggers",
+]
+dependencies = [
+    "nvidia-ml-py>=12",
+    "tomli>=1.1; python_version < '3.11'",
+    'windows-curses>=2.3; sys_platform == "win32"',
+]
+
+[project.optional-dependencies]
+plugs = ["tinytuya>=1.13", "python-kasa>=0.7"]
+dev = ["build>=1.0", "pyinstaller>=6.0"]
+
+[project.scripts]
+zionstats = "zionstats.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["zionstats*"]
