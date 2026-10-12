@@ -55,16 +55,18 @@ jobs:
         if: runner.os == 'Windows'
         run: dist\zionstats.exe --version
       - name: Zip
-        shell: bash
+        shell: python
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          mkdir -p release
-          if [ -f dist/zionstats.exe ]; then
-            zip -j "release/zionstats_${VERSION}_${{ matrix.target }}.zip" dist/zionstats.exe
-          else
-            zip -j "release/zionstats_${VERSION}_${{ matrix.target }}.zip" dist/zionstats
-          fi
-          cp README.md LICENSE CHANGELOG.md release/
+          import os, shutil, zipfile
+          version = os.environ["GITHUB_REF_NAME"].lstrip("v")
+          target = "${{ matrix.target }}"
+          os.makedirs("release", exist_ok=True)
+          exe = "dist/zionstats.exe" if os.path.exists("dist/zionstats.exe") else "dist/zionstats"
+          with zipfile.ZipFile(f"release/zionstats_{version}_{target}.zip", "w",
+                               zipfile.ZIP_DEFLATED) as z:
+              z.write(exe, os.path.basename(exe))
+          for f in ("README.md", "LICENSE", "CHANGELOG.md"):
+              shutil.copy(f, "release/")
       - uses: actions/upload-artifact@v4
         with:
           name: bin-${{ matrix.target }}

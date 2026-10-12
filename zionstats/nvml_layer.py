@@ -389,7 +389,10 @@ def enrich_from_proc(procs: list[GpuProcess]) -> None:
 
 
 _last_cpu: dict[int, tuple[float, float]] = {}
-_CLK_TCK = os.sysconf("SC_CLK_TCK")
+try:
+    _CLK_TCK = os.sysconf("SC_CLK_TCK")  # Linux only; /proc parsing is guarded below
+except (AttributeError, OSError, ValueError):
+    _CLK_TCK = 100.0
 
 
 def _pid_cpu_delta(pid: int, now: float) -> float | None:
