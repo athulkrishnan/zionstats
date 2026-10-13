@@ -1,0 +1,30 @@
+zionstats
+Copyright 2026 Athul Krishnan
+
+This product includes components ported from btop
+  https://github.com/aristocratos/btop
+  Apache License 2.0, Copyright (C) 2020-present Aristocratos
+  - zionstats/ui/widgets.py: quadrant-transition graph engine (_BLOCK_UP /
+    _BLOCK_DOWN / _TTY glyph tables, _quant, _graph_transition) ported from
+    src/btop_draw.cpp Graph::_create; gradient meter shading (btop
+    Meter::operator()); panel / chip / keyhint visual language.
+  - The options menu, mouse interaction, and preset-switching are design
+    ports of btop UI concepts (original implementation).
+
+This product includes components ported from nvitop
+  https://github.com/XuehaiPan/nvitop
+  nvitop/api/ is Apache License 2.0, Copyright (c) 2021 Xuehai Pan
+  - zionstats/util.py: NaType safe-arithmetic sentinel (from
+    nvitop/api/constants.py).
+  - Sparse process re-querying via a TTL cache follows nvitop's use of
+    cachetools.TTLCache; zionstats/util.py TTLCache is an original
+    stdlib-only implementation.
+
+Ideas credited (no code used):
+  - nvitop TUI (tui/, cli.py: GPL-3.0) for the process tree view, process
+    tagging, and kill-confirmation UX. Clean-room reimplementation; no
+    GPL-licensed source was copied or consulted during implementation.
+  - nvtop (GPL-3.0) for panel/toggle layout concepts.
+  - nvitop-exporter for the embedded Prometheus endpoint + Grafana
+    dashboard idea (zionstats implements it with the Python standard
+    library; the default port 9835 matches for drop-in compatibility).

@@ -7,7 +7,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from zionstats.climate import DemoWeather
-from zionstats.config import Config
 from zionstats.insights import Insights
 from zionstats.nvml_layer import DemoProvider
 from zionstats.ui import layout
@@ -95,6 +94,10 @@ class FakeApp:
     def _hottest_sample(self):
         return next(iter(self.samples.values()))
 
+    def _add_zone(self, x, y, w, h, kind, arg):
+        self.zones = getattr(self, "zones", [])
+        self.zones.append((x, y, x + w - 1, y + h - 1, kind, arg))
+
     def _aggregate(self):
         return {"power_w": 90.0, "power_limit_w": 635.0, "mem_used": 2**30,
                 "mem_used_gib": 1.0, "mem_total_gib": 96.0, "mem_frac": 0.2}
@@ -142,7 +145,6 @@ def test_bar_and_chip_colors_differ_from_bg():
 
 
 def test_config_garbage_does_not_crash(tmp_path=None):
-    import os
 
     cfgdir = Path(tempfile.mkdtemp()) / ".config" / "zionstats"
     cfgdir.mkdir(parents=True)
@@ -235,6 +237,34 @@ def test_cooling_new_keys_coerced():
     print("  new cooling keys coerced")
 
 
+def test_zion_config_env_override():
+    """ZION_CONFIG must relocate both config loading and saving."""
+    import os
+
+    p = Path(tempfile.mkdtemp()) / "alt" / "zion.toml"
+    p.parent.mkdir(parents=True)
+    p.write_text('theme = "nord"\n')
+    old = os.environ.get("ZION_CONFIG")
+    os.environ["ZION_CONFIG"] = str(p)
+    try:
+        import zionstats.config as cfgmod
+
+        assert cfgmod.config_path() == p
+        from zionstats.ui.themes import THEME_ORDER as _TO
+
+        cfgmod._KNOWN_THEMES.update(_TO)  # main() does this lazily
+        c = cfgmod.Config()
+        assert c.theme == "nord"
+        c.set("interval", 2.5)          # save must write through the override too
+        assert "interval = 2.5" in p.read_text()
+    finally:
+        if old is None:
+            os.environ.pop("ZION_CONFIG", None)
+        else:
+            os.environ["ZION_CONFIG"] = old
+    print("  ZION_CONFIG override")
+
+
 if __name__ == "__main__":
     test_all_themes_render_full_frame()
     test_light_theme_visibility()
@@ -243,4 +273,5 @@ if __name__ == "__main__":
     test_config_file_permission()
     test_config_sections_load_from_file()
     test_cooling_new_keys_coerced()
+    test_zion_config_env_override()
     print("theme + config QA: ALL PASS")

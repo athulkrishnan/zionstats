@@ -3,16 +3,15 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import sys
 import time
 
 from . import __version__
 from .config import Config
-from .nvml_layer import DemoProvider, NvmlProvider, ProviderError
-from .recorder import ReplayProvider, log_loop, record_for, snapshot_json
-from .ui.themes import REGISTRY, THEME_ORDER
+from .nvml_layer import NvmlProvider, ProviderError
+from .recorder import log_loop, record_for, snapshot_json
+from .ui.themes import THEME_ORDER
 
 
 def _config_mod():
@@ -39,6 +38,11 @@ def build_parser() -> argparse.ArgumentParser:
                         "+ row gradients, ported from btop_draw.cpp), block "
                         "(half-blocks), tty (░▒█), braille (fine dots), ascii")
     p.add_argument("--no-bg", action="store_true", help="do not paint the background")
+    p.add_argument("--readonly", action="store_true",
+                   help="disable process signals (T/K) for this session")
+    p.add_argument("--export", metavar="[HOST:]PORT",
+                   help="serve Prometheus /metrics + /snapshot (default bind "
+                        "127.0.0.1; enables [export] for this session)")
     p.add_argument("--demo", action="store_true", help="synthetic 2-GPU demo (no NVML needed)")
     p.add_argument("--location", metavar="LAT,LON[,LABEL]",
                    help="override weather location for this session")
@@ -102,7 +106,13 @@ def main(argv: list[str] | None = None) -> int:
             provider.close()
             return 0
         if args.log:
-            log_loop(provider, args.log, args.interval or cfg.interval, cfg=cfg)
+            exporter = None
+            if args.export:
+                from .app import make_exporter
+
+                exporter = make_exporter(args, cfg)
+            log_loop(provider, args.log, args.interval or cfg.interval, cfg=cfg,
+                     exporter=exporter)
             return 0
         n = record_for(provider, args.record, args.duration, args.interval or cfg.interval)
         print(f"zionstats: wrote {n} frames to {args.record}")
@@ -313,6 +323,32 @@ def doctor() -> int:
                                False, str(e)[:100]))
     else:
         checks.append(("cooling / plugs", True, "disabled in settings (default)"))
+
+    # ---- metrics exporter (v0.4)
+    if cfg.export.get("enabled"):
+        host = str(cfg.export.get("host", "127.0.0.1"))
+        port = int(cfg.export.get("port", 9835))
+        import socket as _socket
+
+        sock = _socket.socket()
+        sock.settimeout(0.5)
+        try:
+            sock.bind((host, 0) if host == "127.0.0.1" else (host, 0))
+            free = True
+        except OSError:
+            free = False
+        finally:
+            sock.close()
+        checks.append(("exporter config", True,
+                       f"{host}:{port}/metrics" + (" (bind test: port family OK)"
+                                                   if free else " (bind test failed)")))
+        if host not in ("127.0.0.1", "localhost", "::1"):
+            checks.append(("exporter exposure", False,
+                           f"non-loopback bind ({host}) exposes PIDs/users/cmdlines "
+                           "on the network -- see SECURITY.md"))
+    else:
+        checks.append(("metrics exporter", True,
+                       "disabled (start with --export [HOST:]PORT or [export] enabled)"))
 
     ok = all(ok for _, ok, _ in checks)
     _print_doctor(checks)

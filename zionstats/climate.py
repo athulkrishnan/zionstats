@@ -103,7 +103,8 @@ class Weather:
 
     def advisories(self, tgpu: float | None, fahrenheit: bool = False) -> list[tuple[str, str]]:
         out: list[tuple[str, str]] = []
-        t = lambda c: f"{c * 9 / 5 + 32:.0f}F" if fahrenheit else f"{c:.0f}C"
+        def t(c):
+            return f"{c * 9 / 5 + 32:.0f}F" if fahrenheit else f"{c:.0f}C"
         if self.condensation_risk(tgpu or 0.0) and tgpu is not None:
             out.append(("warn", f"GPU below dew point ({t(self.dew_c)}) -- condensation risk, keep blower off"))
         wb = self.wet_bulb_c()

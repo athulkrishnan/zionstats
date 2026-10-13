@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import time
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from .plugs import Plug, PlugError
 
@@ -176,7 +176,7 @@ class CoolingController:
         ok_all = True
         for plug in self.plugs:
             ok = False
-            for attempt in range(3):
+            for _attempt in range(3):
                 try:
                     (plug.on if desired else plug.off)()
                     self._sleep(self.cfg.verify_delay_s)

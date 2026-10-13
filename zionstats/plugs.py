@@ -127,7 +127,7 @@ class KasaPlug(Plug):
 
     def __init__(self, name: str, host: str) -> None:
         try:
-            import kasa  # optional dependency
+            import kasa  # optional dependency  # noqa: F401 (availability probe)
         except ImportError as e:
             raise PlugError("backend 'kasa' needs: pip install python-kasa") from e
         self.name = name
@@ -294,7 +294,7 @@ def build_plug(cfg: dict) -> Plug:
         raise PlugError(f"plug {cfg.get('name', '?')}: missing config field {e}") from e
 
 
-def build_plugs(cfgs: list[dict]) -> list[Plug]:
+def build_plugs(cfgs: list[dict]) -> tuple[list[Plug], list[str]]:
     plugs, errors = [], []
     for c in cfgs or []:
         try:

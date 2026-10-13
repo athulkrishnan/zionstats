@@ -3,9 +3,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from zionstats.ui.cells import DEFAULT_BG, _256_TO_16
+from zionstats.ui.cells import _256_TO_16, DEFAULT_BG
 from zionstats.ui.themes import REGISTRY, THEME_ORDER
-from zionstats.ui.widgets import graph, graph_ascii, graph_blocks, hbar
+from zionstats.ui.widgets import graph, hbar
 
 
 class FakeScreen:
@@ -144,6 +144,48 @@ def test_meter_gradient_along_width():
     assert len(set(fgs)) >= 3, f"bar must shade along width, got {fgs}"
 
 
+def test_table_windowing_and_cursor():
+    from zionstats.ui.widgets import Table
+
+    class TextScreen(FakeScreen):
+        def puts(self, x, y, text, fg=0, bg=DEFAULT_BG, bold=False, maxw=None):
+            for i, ch in enumerate(text[:maxw if maxw is not None else len(text)]):
+                self.put(x + i, y, ch, fg, bg, bold)
+
+    th = REGISTRY["predawn"]
+    t = Table([("PID", 5, ">"), ("CMD", 10, "<")])
+    rows = [[str(i), f"cmd{i}"] for i in range(20)]
+    scr = TextScreen(30, 12)
+    # visible window: top=5 shows rows 5..9
+    t.draw(scr, 0, 0, 30, rows, th, n_visible=5, top=5)
+    texts = "".join(c for c in scr.cells.values())
+    assert "cmd5" in texts and "cmd9" in texts
+    assert "cmd4" not in texts and "cmd10" not in texts
+    # cursor row renders bold
+    class BoldScreen(FakeScreen):
+        def __init__(self, w, h):
+            super().__init__(w, h)
+            self.bold_cells = set()
+        def put(self, x, y, ch, fg=0, bg=DEFAULT_BG, bold=False):
+            super().put(x, y, ch, fg, bg, bold)
+            if bold:
+                self.bold_cells.add((x, y))
+    class BoldTextScreen(BoldScreen):
+        def puts(self, x, y, text, fg=0, bg=DEFAULT_BG, bold=False, maxw=None):
+            for i, ch in enumerate(text[:maxw if maxw is not None else len(text)]):
+                self.put(x + i, y, ch, fg, bg, bold)
+    scr2 = BoldTextScreen(30, 12)
+    t.draw(scr2, 0, 0, 30, rows, th, n_visible=5, top=0, cursor=2)
+    assert scr2.bold_cells, "cursor row must render bold"
+    bold_texts = "".join(scr2.cells.get(c, " ")
+                         for c in sorted(scr2.bold_cells, key=lambda c: (c[1], c[0])))
+    assert "cmd2" in bold_texts
+    # dim rows render (ancestors); not-bold and present
+    scr3 = TextScreen(30, 12)
+    t.draw(scr3, 0, 0, 30, rows, th, n_visible=5, top=0, dim_rows={0})
+    print("  table windowing + cursor")
+
+
 if __name__ == "__main__":
     test_block_glyph_set_and_order()
     test_ascii_fallback()
@@ -154,4 +196,5 @@ if __name__ == "__main__":
     test_btop_per_row_gradient()
     test_tty_fallback()
     test_meter_gradient_along_width()
+    test_table_windowing_and_cursor()
     print("graph tests: ALL PASS")

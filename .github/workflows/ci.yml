@@ -25,8 +25,37 @@ jobs:
           python tests/test_cooling.py
           python tests/test_themes_and_config.py
           python tests/test_graphs.py
+          python tests/test_recorder_insights.py
+          python tests/test_nvml_layer.py
+          python tests/test_layout.py
+          python tests/test_cells.py
+          python tests/test_cli.py
+          python tests/test_util.py
+          python tests/test_procs.py
+          python tests/test_app_keys.py
+          python tests/test_exporter.py
       - name: CLI smoke
         run: |
           zionstats --version
           zionstats --list-themes
           zionstats --demo --snapshot | python -m json.tool > /dev/null
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ruff
+      - run: ruff check .
+
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e . mypy
+      - run: mypy zionstats

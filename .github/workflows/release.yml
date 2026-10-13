@@ -8,7 +8,23 @@ permissions:
   contents: write
 
 jobs:
+  version-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tag must match pyproject version
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          PYPROJECT_VERSION="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml","rb"))["project"]["version"])' 2>/dev/null \
+            || python -c 'import tomli; print(tomli.load(open("pyproject.toml","rb"))["project"]["version"])')"
+          echo "tag=$TAG_VERSION pyproject=$PYPROJECT_VERSION"
+          if [ "$TAG_VERSION" != "$PYPROJECT_VERSION" ]; then
+            echo "::error::tag v$TAG_VERSION != pyproject $PYPROJECT_VERSION -- bump one of them"
+            exit 1
+          fi
+
   python-packages:
+    needs: version-check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -22,7 +38,22 @@ jobs:
           name: python-packages
           path: dist/*
 
+  publish-pypi:
+    needs: [python-packages, version-check]
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write  # PyPI trusted publishing (OIDC)
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: python-packages
+          path: dist
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+
   binaries:
+    needs: version-check
     strategy:
       fail-fast: false
       matrix:
@@ -66,7 +97,7 @@ jobs:
           with zipfile.ZipFile(f"release/zionstats_{version}_{target}.zip", "w",
                                zipfile.ZIP_DEFLATED) as z:
               z.write(exe, os.path.basename(exe))
-          for f in ("README.md", "LICENSE", "CHANGELOG.md"):
+          for f in ("README.md", "LICENSE", "NOTICE", "CHANGELOG.md"):
               shutil.copy(f, "release/")
       - uses: actions/upload-artifact@v4
         with:

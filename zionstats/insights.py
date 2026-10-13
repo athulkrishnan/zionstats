@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from .nvml_layer import Sample
 
@@ -185,3 +185,26 @@ class Insights:
 
 def i0(s: Sample) -> int:
     return s.index
+
+
+class AutoScale:
+    """Rolling y-max with exponential decay for graph tiles (btop scales its
+    network graphs the same way): vmax follows peaks up instantly and bleeds
+    back down slowly, so idle-after-load graphs stay readable but honest.
+    The legend prints the live vmax so the axis is never silently rescaled."""
+
+    def __init__(self, decay: float = 0.997, floor_v: float = 1.0,
+                 ceil_v: float | None = None) -> None:
+        self.decay = decay
+        self.floor_v = max(1e-9, floor_v)
+        self.ceil_v = ceil_v
+        self.vmax = floor_v
+
+    def update(self, v: float | None) -> float:
+        if v is None:
+            return self.vmax
+        target = max(float(v), self.vmax * self.decay, self.floor_v)
+        if self.ceil_v is not None:
+            target = min(target, self.ceil_v)
+        self.vmax = target
+        return self.vmax

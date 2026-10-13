@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from .cells import DEFAULT_BG, Screen
+from .cells import Screen
 from .themes import Theme
 
 # ------------------------------------------------------------------ braille
@@ -110,11 +110,14 @@ def graph(
 
 
 # ------------------------------------------------------------------ btop engine
-# Faithful port of btop_draw.cpp Graph::_create (aristocratos/btop, MIT... Apache-2.0).
+# Ported from aristocratos/btop src/btop_draw.cpp (Apache-2.0)
+# Copyright (C) 2020-present Aristocratos.  https://github.com/aristocratos/btop
+# Modifications for zionstats: coloring applied per row from a 101-step theme
+# gradient (top row = hot end) instead of btop's computed graph colors;
+# threshold rules stamped only on blank cells; py3.9 floor.
 # Each cell encodes the transition between the previous sample and the current
 # one: per row band both values quantize to sub-levels 0..4 and the glyph is
-# table[last * 5 + current].  Coloring is applied PER ROW from a 101-step
-# theme gradient (top row = hot end), which is btop's signature shading.
+# table[last * 5 + current].
 
 _BLOCK_UP = [
     " ", "▗", "▗", "▐", "▐",
@@ -263,7 +266,6 @@ def graph_ascii(
     vmax = vmax if vmax > 0 else 1.0
     floor = max(0.0, min(0.25, floor))
     bg = theme.q("bg")
-    fg = theme.q("fg")
     dim = theme.q("dim")
     for gx, v in enumerate(vals):
         f = 0.0 if vmax <= 0 else max(0.0, min(1.0, v / vmax))
@@ -419,30 +421,42 @@ class Table:
         n_visible: int,
         top: int = 0,
         color_rows: list[list[int | None]] | None = None,
+        cursor: int | None = None,
+        dim_rows: set[int] | None = None,
     ) -> None:
         bg = theme.q("bg")
         cx = x
         head_colors = theme.q("table_head")
-        for (title, width, align), ci in zip(self.cols, range(len(self.cols))):
+        for (title, width, align), _ci in zip(self.cols, range(len(self.cols))):
             cell = _align(title, width, align)
             scr.puts(cx, y, cell, head_colors, bg, bold=True, maxw=w - (cx - x))
             cx += width + 1
             if cx - x > w:
                 break
         scr.puts(x, y + 1, "─" * min(w, sum(cw[1] + 1 for cw in self.cols)), theme.q("border"), bg)
+        dim = dim_rows or set()
         for ri, row in enumerate(rows[top : top + n_visible]):
             ry = y + 2 + ri
-            alt = (ri + top) % 2 == 1
-            row_bg = theme.q("table_alt") if alt else bg
+            absi = ri + top
+            selected = cursor is not None and absi == cursor
+            alt = absi % 2 == 1
+            if selected:
+                row_bg = theme.q("table_alt")
+            else:
+                row_bg = theme.q("table_alt") if alt else bg
             cx = x
-            colors = color_rows[ri + top] if color_rows else None
-            for ci, (val, (title, width, align)) in enumerate(zip(row, self.cols)):
+            colors = color_rows[absi] if color_rows else None
+            for ci, (val, (_title, width, align)) in enumerate(zip(row, self.cols)):
                 if cx - x >= w:
                     break
-                fg = theme.q("fg")
-                if colors and ci < len(colors) and colors[ci] is not None:
-                    fg = colors[ci]
-                scr.puts(cx, ry, _align(val, width, align), fg, row_bg, maxw=w - (cx - x))
+                if selected:
+                    fg = theme.q("border_sel")
+                else:
+                    fg = theme.q("dim") if absi in dim else theme.q("fg")
+                    if colors and ci < len(colors) and colors[ci] is not None:
+                        fg = colors[ci] or fg
+                scr.puts(cx, ry, _align(val, width, align), fg, row_bg,
+                         bold=selected, maxw=w - (cx - x))
                 cx += width + 1
 
 
@@ -460,8 +474,10 @@ def _align(s: str, width: int, align: str) -> str:
 # ------------------------------------------------------------------ hints
 
 
-def keyhints(scr: Screen, y: int, hints: list[tuple[str, str]], theme: Theme, w: int) -> None:
-    """Two-tone hint bar: key in key_hint color, label in key_label color."""
+def keyhints(scr: Screen, y: int, hints: list[tuple[str, str]], theme: Theme, w: int,
+             on_zone=None) -> None:
+    """Two-tone hint bar: key in key_hint color, label in key_label color.
+    `on_zone(x, y, w, h, key)` is called per rendered hint (mouse support)."""
     cx = 1
     keyc = theme.q("key_hint")
     labelc = theme.q("key_label")
@@ -469,6 +485,8 @@ def keyhints(scr: Screen, y: int, hints: list[tuple[str, str]], theme: Theme, w:
     for k, label in hints:
         if cx + len(k) + len(label) + 3 > w:
             break
+        if on_zone is not None:
+            on_zone(cx, y, len(k) + 1 + len(label), 1, k)
         scr.puts(cx, y, k, keyc, bg, bold=True)
         cx += len(k)
         scr.puts(cx, y, " ", labelc, bg)

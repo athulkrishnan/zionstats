@@ -8,13 +8,16 @@ time, or the TUI dies mid-session).
 
 from __future__ import annotations
 
-import math
 import os
 import random
 import socket
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
+
+from . import procs
+from .procs import ProcInfo
+from .util import TTLCache
 
 NOT_SUPPORTED = object()
 
@@ -70,7 +73,7 @@ class Sample:
     persistence: bool | None = None
     compute_mode: str | None = None
 
-    def merged_over(self, base: "Sample") -> "Sample":
+    def merged_over(self, base: Sample) -> Sample:
         """Fill None fields of self from base (used by replay/demo merging)."""
         return replace(self, **{
             k: getattr(self, k) if getattr(self, k) is not None else getattr(base, k)
@@ -119,6 +122,7 @@ class NvmlProvider:
                 continue
             self._handles.append((i, pynvml.nvmlDeviceGetHandleByIndex(i)))
         self._last_seen_util_ts: dict[int, int] = {}
+        self._proc_cache = TTLCache(maxsize=256, ttl=30.0)
         self._energy0: dict[int, int | None] = {}
         self._fast_ids = self._resolve_fast_fields()
 
@@ -167,107 +171,111 @@ class NvmlProvider:
     def devices(self) -> list[dict]:
         out = []
         for i, h in self._handles:
-            name = _b2s(lambda: self.nv.nvmlDeviceGetName(h))
-            uuid = _b2s(lambda: self.nv.nvmlDeviceGetUUID(h))
-            out.append({"index": i, "name": name, "uuid": uuid})
+            out.append({"index": i, "name": self._dev_name(h), "uuid": self._dev_uuid(h)})
         return out
+
+    def _dev_name(self, h: object) -> str:
+        return _b2s(lambda: self.nv.nvmlDeviceGetName(h))
+
+    def _dev_uuid(self, h: object) -> str:
+        return _b2s(lambda: self.nv.nvmlDeviceGetUUID(h))
 
     def sample(self) -> list[Sample]:
         now = time.time()
-        out = []
-        for i, h in self._handles:
-            s = Sample(ts=now, index=i)
-            s.uuid = _b2s(lambda: self.nv.nvmlDeviceGetUUID(h)) or ""
-            s.name = _b2s(lambda: self.nv.nvmlDeviceGetName(h)) or "?"
-            major, minor = _g(lambda: self.nv.nvmlDeviceGetCudaComputeCapability(h), (0, 0))
-            s.compute_cap = f"{major}.{minor}"
-            s.arch = _arch_name(major, minor)
-            pstate = _g(lambda: self.nv.nvmlDeviceGetPerformanceState(h), None)
-            if pstate is not None:
-                s.pstate = f"P{pstate}"
-            self._fast_or_slow(s, h)
-            u = _g(lambda: self.nv.nvmlDeviceGetUtilizationRates(h), None)
-            if u:
-                s.util_gpu, s.util_mem = float(u.gpu), float(u.memory)
-            enc = _g(lambda: self.nv.nvmlDeviceGetEncoderUtilization(h), None)
-            if enc:
-                s.util_enc = float(enc[0])
-            dec = _g(lambda: self.nv.nvmlDeviceGetDecoderUtilization(h), None)
-            if dec:
-                s.util_dec = float(dec[0])
-            m = _g(lambda: self.nv.nvmlDeviceGetMemoryInfo(h), None)
-            if m:
-                s.mem_used, s.mem_total = int(m.used), int(m.total)
-                s.mem_reserved = getattr(m, "reserved", None)
-            b1 = _g(lambda: self.nv.nvmlDeviceGetBAR1MemoryInfo(h), None)
-            if b1:
-                s.bar1_used, s.bar1_total = int(b1.bar1Used), int(b1.bar1Total)
-            if s.power_limit_w is None:
-                s.power_limit_w = _mw(lambda: self.nv.nvmlDeviceGetPowerManagementLimit(h))
-            s.power_default_w = _mw(lambda: self.nv.nvmlDeviceGetPowerManagementDefaultLimit(h))
-            lohi = _g(lambda: self.nv.nvmlDeviceGetPowerManagementLimitConstraints(h), None)
-            if lohi:
-                s.power_min_w, s.power_max_w = lohi[0] / 1000.0, lohi[1] / 1000.0
-            s.clocks_sm_mhz = _g(lambda: self.nv.nvmlDeviceGetClockInfo(h, self.nv.NVML_CLOCK_SM), None)
-            s.clocks_mem_mhz = _g(lambda: self.nv.nvmlDeviceGetClockInfo(h, self.nv.NVML_CLOCK_MEM), None)
-            s.clocks_video_mhz = _g(lambda: self.nv.nvmlDeviceGetClockInfo(h, self.nv.NVML_CLOCK_VIDEO), None)
-            s.clocks_max_sm_mhz = _g(lambda: self.nv.nvmlDeviceGetMaxClockInfo(h, self.nv.NVML_CLOCK_SM), None)
-            bits = _g(lambda: self.nv.nvmlDeviceGetCurrentClocksThrottleReasons(h), None)
-            if bits is not None:
-                s.throttle_bits = int(bits)
-                s.throttle = decode_throttle(self.nv, int(bits))
-            s.temp_gpu = _g(lambda: self.nv.nvmlDeviceGetTemperature(h, self.nv.NVML_TEMPERATURE_GPU), None)
-            s.temp_mem = _g(
-                lambda: self.nv.nvmlDeviceGetTemperature(h, getattr(self.nv, "NVML_TEMPERATURE_MEMORY", -1)),
-                None,
-            )
-            s.temp_slowdown = _g(
-                lambda: self.nv.nvmlDeviceGetTemperatureThreshold(h, self.nv.NVML_TEMPERATURE_THRESHOLD_SLOWDOWN),
-                None,
-            )
-            s.temp_shutdown = _g(
-                lambda: self.nv.nvmlDeviceGetTemperatureThreshold(h, self.nv.NVML_TEMPERATURE_THRESHOLD_SHUTDOWN),
-                None,
-            )
-            s.fan_pct = _g(lambda: self.nv.nvmlDeviceGetFanSpeed(h), None)
-            s.pcie_gen_max = _g(lambda: self.nv.nvmlDeviceGetMaxPcieLinkGeneration(h), None)
-            s.pcie_gen_cur = _g(lambda: self.nv.nvmlDeviceGetPcieLinkGeneration(h), s.pcie_gen_max)
-            s.pcie_width_max = _g(lambda: self.nv.nvmlDeviceGetMaxPcieLinkWidth(h), None)
-            s.pcie_width_cur = _g(lambda: self.nv.nvmlDeviceGetPcieLinkWidth(h), s.pcie_width_max)
-            s.pcie_rx_kbps = _g(
-                lambda: self.nv.nvmlDeviceGetPcieThroughput(h, self.nv.NVML_PCIE_UTIL_RX_BYTES), None
-            )
-            s.pcie_tx_kbps = _g(
-                lambda: self.nv.nvmlDeviceGetPcieThroughput(h, self.nv.NVML_PCIE_UTIL_TX_BYTES), None
-            )
-            s.ecc_sbe = _g(
-                lambda: self.nv.nvmlDeviceGetTotalEccErrors(
-                    h, self.nv.NVML_MEMORY_ERROR_TYPE_CORRECTED, self.nv.NVML_VOLATILE_ECC
-                ),
-                None,
-            )
-            s.ecc_dbe = _g(
-                lambda: self.nv.nvmlDeviceGetTotalEccErrors(
-                    h, self.nv.NVML_MEMORY_ERROR_TYPE_UNCORRECTED, self.nv.NVML_VOLATILE_ECC
-                ),
-                None,
-            )
-            mig = _g(lambda: self.nv.nvmlDeviceGetMigMode(h), None)
-            if mig:
-                s.mig_mode = "ON" if mig[0] else "OFF"
-                if mig[0]:
-                    s.mig_instances = _g(lambda: len(self.nv.nvmlDeviceGetMigDevices(h)), 0) or 0
-            s.display_active = bool(_g(lambda: self.nv.nvmlDeviceGetDisplayActive(h), False))
-            s.persistence = bool(_g(lambda: self.nv.nvmlDeviceGetPersistenceMode(h), 0))
-            cm = _g(lambda: self.nv.nvmlDeviceGetComputeMode(h), None)
-            if cm is not None:
-                s.compute_mode = {
-                    getattr(self.nv, "NVML_COMPUTEMODE_DEFAULT", 0): "Default",
-                    getattr(self.nv, "NVML_COMPUTEMODE_EXCLUSIVE_PROCESS", 3): "Excl.Proc",
-                    getattr(self.nv, "NVML_COMPUTEMODE_PROHIBITED", 2): "Prohibited",
-                }.get(cm, str(cm))
-            out.append(s)
-        return out
+        return [self._sample_one(i, h, now) for i, h in self._handles]
+
+    def _sample_one(self, i: int, h: object, now: float) -> Sample:
+        s = Sample(ts=now, index=i)
+        s.uuid = self._dev_uuid(h) or ""
+        s.name = self._dev_name(h) or "?"
+        major, minor = _g(lambda: self.nv.nvmlDeviceGetCudaComputeCapability(h), (0, 0))
+        s.compute_cap = f"{major}.{minor}"
+        s.arch = _arch_name(major, minor)
+        pstate = _g(lambda: self.nv.nvmlDeviceGetPerformanceState(h), None)
+        if pstate is not None:
+            s.pstate = f"P{pstate}"
+        self._fast_or_slow(s, h)
+        u = _g(lambda: self.nv.nvmlDeviceGetUtilizationRates(h), None)
+        if u:
+            s.util_gpu, s.util_mem = float(u.gpu), float(u.memory)
+        enc = _g(lambda: self.nv.nvmlDeviceGetEncoderUtilization(h), None)
+        if enc:
+            s.util_enc = float(enc[0])
+        dec = _g(lambda: self.nv.nvmlDeviceGetDecoderUtilization(h), None)
+        if dec:
+            s.util_dec = float(dec[0])
+        m = _g(lambda: self.nv.nvmlDeviceGetMemoryInfo(h), None)
+        if m:
+            s.mem_used, s.mem_total = int(m.used), int(m.total)
+            s.mem_reserved = getattr(m, "reserved", None)
+        b1 = _g(lambda: self.nv.nvmlDeviceGetBAR1MemoryInfo(h), None)
+        if b1:
+            s.bar1_used, s.bar1_total = int(b1.bar1Used), int(b1.bar1Total)
+        if s.power_limit_w is None:
+            s.power_limit_w = _mw(lambda: self.nv.nvmlDeviceGetPowerManagementLimit(h))
+        s.power_default_w = _mw(lambda: self.nv.nvmlDeviceGetPowerManagementDefaultLimit(h))
+        lohi = _g(lambda: self.nv.nvmlDeviceGetPowerManagementLimitConstraints(h), None)
+        if lohi:
+            s.power_min_w, s.power_max_w = lohi[0] / 1000.0, lohi[1] / 1000.0
+        s.clocks_sm_mhz = _g(lambda: self.nv.nvmlDeviceGetClockInfo(h, self.nv.NVML_CLOCK_SM), None)
+        s.clocks_mem_mhz = _g(lambda: self.nv.nvmlDeviceGetClockInfo(h, self.nv.NVML_CLOCK_MEM), None)
+        s.clocks_video_mhz = _g(lambda: self.nv.nvmlDeviceGetClockInfo(h, self.nv.NVML_CLOCK_VIDEO), None)
+        s.clocks_max_sm_mhz = _g(lambda: self.nv.nvmlDeviceGetMaxClockInfo(h, self.nv.NVML_CLOCK_SM), None)
+        bits = _g(lambda: self.nv.nvmlDeviceGetCurrentClocksThrottleReasons(h), None)
+        if bits is not None:
+            s.throttle_bits = int(bits)
+            s.throttle = decode_throttle(self.nv, int(bits))
+        s.temp_gpu = _g(lambda: self.nv.nvmlDeviceGetTemperature(h, self.nv.NVML_TEMPERATURE_GPU), None)
+        s.temp_mem = _g(
+            lambda: self.nv.nvmlDeviceGetTemperature(h, getattr(self.nv, "NVML_TEMPERATURE_MEMORY", -1)),
+            None,
+        )
+        s.temp_slowdown = _g(
+            lambda: self.nv.nvmlDeviceGetTemperatureThreshold(h, self.nv.NVML_TEMPERATURE_THRESHOLD_SLOWDOWN),
+            None,
+        )
+        s.temp_shutdown = _g(
+            lambda: self.nv.nvmlDeviceGetTemperatureThreshold(h, self.nv.NVML_TEMPERATURE_THRESHOLD_SHUTDOWN),
+            None,
+        )
+        s.fan_pct = _g(lambda: self.nv.nvmlDeviceGetFanSpeed(h), None)
+        s.pcie_gen_max = _g(lambda: self.nv.nvmlDeviceGetMaxPcieLinkGeneration(h), None)
+        s.pcie_gen_cur = _g(lambda: self.nv.nvmlDeviceGetPcieLinkGeneration(h), s.pcie_gen_max)
+        s.pcie_width_max = _g(lambda: self.nv.nvmlDeviceGetMaxPcieLinkWidth(h), None)
+        s.pcie_width_cur = _g(lambda: self.nv.nvmlDeviceGetPcieLinkWidth(h), s.pcie_width_max)
+        s.pcie_rx_kbps = _g(
+            lambda: self.nv.nvmlDeviceGetPcieThroughput(h, self.nv.NVML_PCIE_UTIL_RX_BYTES), None
+        )
+        s.pcie_tx_kbps = _g(
+            lambda: self.nv.nvmlDeviceGetPcieThroughput(h, self.nv.NVML_PCIE_UTIL_TX_BYTES), None
+        )
+        s.ecc_sbe = _g(
+            lambda: self.nv.nvmlDeviceGetTotalEccErrors(
+                h, self.nv.NVML_MEMORY_ERROR_TYPE_CORRECTED, self.nv.NVML_VOLATILE_ECC
+            ),
+            None,
+        )
+        s.ecc_dbe = _g(
+            lambda: self.nv.nvmlDeviceGetTotalEccErrors(
+                h, self.nv.NVML_MEMORY_ERROR_TYPE_UNCORRECTED, self.nv.NVML_VOLATILE_ECC
+            ),
+            None,
+        )
+        mig = _g(lambda: self.nv.nvmlDeviceGetMigMode(h), None)
+        if mig:
+            s.mig_mode = "ON" if mig[0] else "OFF"
+            if mig[0]:
+                s.mig_instances = _g(lambda: len(self.nv.nvmlDeviceGetMigDevices(h)), 0) or 0
+        s.display_active = bool(_g(lambda: self.nv.nvmlDeviceGetDisplayActive(h), False))
+        s.persistence = bool(_g(lambda: self.nv.nvmlDeviceGetPersistenceMode(h), 0))
+        cm = _g(lambda: self.nv.nvmlDeviceGetComputeMode(h), None)
+        if cm is not None:
+            s.compute_mode = {
+                getattr(self.nv, "NVML_COMPUTEMODE_DEFAULT", 0): "Default",
+                getattr(self.nv, "NVML_COMPUTEMODE_EXCLUSIVE_PROCESS", 3): "Excl.Proc",
+                getattr(self.nv, "NVML_COMPUTEMODE_PROHIBITED", 2): "Prohibited",
+            }.get(cm, str(cm))
+        return s
 
     def _fast_or_slow(self, s: Sample, h: object) -> None:
         """One batched FieldValues call for the hot metrics; slow getters fill gaps."""
@@ -312,12 +320,12 @@ class NvmlProvider:
         out: list[GpuProcess] = []
         for i, h in self._handles:
             per_pid = self._pid_utils(h, i)
-            for kind, fn in (
-                ("C", lambda: self.nv.nvmlDeviceGetComputeRunningProcesses(h)),
-                ("G", lambda: self.nv.nvmlDeviceGetGraphicsRunningProcesses(h)),
-            ):
+            for kind in ("C", "G"):
                 try:
-                    infos = fn()
+                    if kind == "C":
+                        infos = self.nv.nvmlDeviceGetComputeRunningProcesses(h)
+                    else:
+                        infos = self.nv.nvmlDeviceGetGraphicsRunningProcesses(h)
                 except Exception:
                     continue
                 for info in infos or []:
@@ -335,6 +343,20 @@ class NvmlProvider:
                         p.type = kind
                         out.append(p)
         enrich_from_proc(out)
+        return out
+
+    def proc_info(self, pids: list[int], with_env: bool = False) -> dict[int, ProcInfo]:
+        """/proc table for the process tree + detail screen.  Best-effort;
+        missing processes are simply absent from the result."""
+        out: dict[int, ProcInfo] = {}
+        for pid in pids:
+            info = procs.read_proc_info(pid, self._proc_cache)
+            if info is None:
+                continue
+            if with_env:
+                info.environ = procs.read_proc_env(pid)
+                info.cwd = procs.read_proc_cwd(pid)
+            out[pid] = info
         return out
 
     def _pid_utils(self, h: object, idx: int) -> dict[int, tuple]:
@@ -390,7 +412,7 @@ def enrich_from_proc(procs: list[GpuProcess]) -> None:
 
 _last_cpu: dict[int, tuple[float, float]] = {}
 try:
-    _CLK_TCK = os.sysconf("SC_CLK_TCK")  # Linux only; /proc parsing is guarded below
+    _CLK_TCK: float = os.sysconf("SC_CLK_TCK")  # Linux only; /proc parsing is guarded below
 except (AttributeError, OSError, ValueError):
     _CLK_TCK = 100.0
 
@@ -547,7 +569,9 @@ class DemoProvider:
     def sample(self) -> list[Sample]:
         t = self._phase()
         now = time.time()
-        j = lambda a=1.0: a * (self._rand.random() - 0.5)
+        def j(a: float = 1.0) -> float:
+            return a * (self._rand.random() - 0.5)
+
         out = []
         want = self._only or {0, 1}
 
@@ -571,7 +595,7 @@ class DemoProvider:
             ts=now, index=0, uuid="GPU-demo-4070tis",
             name="NVIDIA GeForce RTX 4070 Ti SUPER", arch="Ada", compute_cap="8.9",
             pstate="P0" if load > 8 else "P8",
-            util_gpu=load, util_mem=min(100.0, load * 0.82 + j(6)),
+            util_gpu=load, util_mem=min(100.0, max(0.0, load * 0.82 + j(6))),
             util_enc=max(0.0, 40 - abs(t - 42) * 2) if 20 < t < 65 else 0.0,
             util_dec=0.0,
             mem_used=int(1.1e9 + (13.2e9 if t > 18 else 0) * min(1.0, max(0.0, (t - 15) / 3)) + j(0.4e9)),
@@ -632,7 +656,9 @@ class DemoProvider:
 
     def processes(self) -> list[GpuProcess]:
         t = self._phase()
-        j = lambda a=1.0: a * (self._rand.random() - 0.5)
+        def j(a: float = 1.0) -> float:
+            return a * (self._rand.random() - 0.5)
+
         active0 = t > 15
         procs = [
             GpuProcess(184722, 0, "C", int(13.4 * 2**30 + j(0.2e9)), 97.0, 84.0, 0.0, 0.0,
@@ -651,5 +677,52 @@ class DemoProvider:
             procs = [p for p in procs if p.gpu_index in self._only]
         return procs
 
+    def proc_info(self, pids: list[int], with_env: bool = False) -> dict[int, ProcInfo]:
+        table = _demo_proc_info()
+        out: dict[int, ProcInfo] = {}
+        for pid in pids:
+            info = table.get(pid)
+            if info is not None:
+                out[pid] = info
+        return out
+
     def close(self) -> None:
         pass
+
+
+# ------------------------------------------------------------------ replay extras
+
+
+def _demo_proc_info() -> dict[int, ProcInfo]:
+    """Canned /proc table for the demo, including a two-level parent chain:
+    800 sshd -> 810 bash run.sh -> 184722 python train.py.  Makes the tree
+    view and the per-process detail screen fully demoable without a GPU."""
+    def info(pid, ppid, user, cmdline, cwd, exe, env):
+        return ProcInfo(pid=pid, ppid=ppid, user=user, cmdline=cmdline, cwd=cwd,
+                        exe=exe, environ=env)
+    return {
+        800: info(800, 1, "root", "sshd: demo [priv]", "", "/usr/sbin/sshd", []),
+        810: info(810, 800, "demo", "-bash", "/home/demo", "/usr/bin/bash",
+                  [("SHELL", "/bin/bash"), ("USER", "demo")]),
+        184700: info(184700, 810, "demo", "bash run.sh", "/home/demo/train",
+                     "/usr/bin/bash",
+                     [("CUDA_VISIBLE_DEVICES", "0,1"), ("PATH", "/usr/local/bin:/usr/bin"),
+                      ("USER", "demo")]),
+        184722: info(184722, 184700, "demo", "python train.py --batch 256 --amp",
+                     "/home/demo/train", "/usr/bin/python3.12",
+                     [("CUDA_VISIBLE_DEVICES", "0,1"),
+                      ("CUDA_DEVICE_ORDER", "PCI_BUS_ID"),
+                      ("NVIDIA_VISIBLE_DEVICES", "all"),
+                      ("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True"),
+                      ("USER", "demo")]),
+        184701: info(184701, 800, "demo", "chrome --type=gpu-process", "", "", []),
+        192000: info(192000, 1, "mlteam", "bash entry.sh", "/srv/vllm", "/usr/bin/bash",
+                     [("USER", "mlteam")]),
+        192004: info(192004, 192000, "mlteam", "python -m vllm.entrypoints serve",
+                     "/srv/vllm", "/usr/bin/python3.12",
+                     [("CUDA_VISIBLE_DEVICES", "1"),
+                      ("VLLM_ATTENTION_BACKEND", "FLASHINFER"),
+                      ("USER", "mlteam")]),
+        192101: info(192101, 192000, "mlteam", "python watchdog.py", "/srv/vllm",
+                     "/usr/bin/python3.12", [("USER", "mlteam")]),
+    }

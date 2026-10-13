@@ -37,7 +37,7 @@ class Recorder:
         if str(path).endswith(".gz"):
             self._fh = gzip.open(self.path, "at", encoding="utf-8")
         else:
-            self._fh = open(self.path, "at", encoding="utf-8")
+            self._fh = open(self.path, "a", encoding="utf-8")
 
     def write(self, env: dict, samples: list[Sample], processes: list[GpuProcess]) -> None:
         assert self._fh is not None
@@ -99,6 +99,10 @@ class ReplayProvider:
             for p in frame.get("processes", [])
         ]
 
+    def proc_info(self, pids: list[int], with_env: bool = False) -> dict:
+        """Traces don't capture /proc forensics; the UI degrades gracefully."""
+        return {}
+
     def close(self) -> None:
         pass
 
@@ -123,8 +127,9 @@ def record_for(provider, path: str, duration: float, interval: float) -> int:
     return n
 
 
-def log_loop(provider, path: str, interval: float, cfg=None) -> None:
-    """Headless logging until SIGINT (gputop regression-capture heritage)."""
+def log_loop(provider, path: str, interval: float, cfg=None, exporter=None) -> None:
+    """Headless logging until SIGINT (gputop regression-capture heritage).
+    `exporter` (optional) receives every frame so --log --export works."""
     rec = Recorder(path)
     env = provider.environment()
     ctl = None
@@ -146,7 +151,8 @@ def log_loop(provider, path: str, interval: float, cfg=None) -> None:
         while True:
             t0 = time.time()
             samples = provider.sample()
-            rec.write(env, samples, provider.processes())
+            procs = provider.processes()
+            rec.write(env, samples, procs)
             if ctl is not None:
                 hot = None
                 for s in samples:
@@ -154,9 +160,13 @@ def log_loop(provider, path: str, interval: float, cfg=None) -> None:
                         hot = s
                 if hot is not None:
                     ctl.evaluate(hot, None)  # no weather headless; usage trigger ignores it
+            if exporter is not None:
+                exporter.publish(env, samples, procs, {})
             time.sleep(max(0.0, interval - (time.time() - t0)))
     except KeyboardInterrupt:
         pass
     finally:
         rec.close()
         provider.close()
+        if exporter is not None:
+            exporter.stop()

@@ -1,5 +1,50 @@
 # Changelog
 
+## v0.4.0 -- process forensics, btop UX, built-in exporter (2026-10-13)
+
+### Added
+- **Process forensics (nvitop-inspired, clean-room)**: selectable, scrollable
+  process table (arrows/j/k, PgUp/PgDn, Home/End), tree view with /proc
+  parent chains (`v`), per-process detail screen (Enter: full cmdline, cwd,
+  exe, ancestor chain, scrollable environment, live SM% sparkline), tag/untag
+  (Space), and signals T (SIGTERM) / K (SIGKILL) behind a typed `yes`
+  confirmation, `--readonly`, and hard demo/replay blocks. `/` regex filter
+  persists to the config; `NaType` + TTL-cache patterns ported from
+  nvitop's Apache-2.0 API layer (see NOTICE).
+- **btop-style UX (btop-inspired, Apache-2.0)**: full mouse support (click
+  GPU cards / keyhints / process rows / menus, wheel scrolls the process
+  list, `mouse = false` opt-out), an in-TUI options menu (`O`) that live-
+  applies and persists every setting, panel toggles (`x`, btop box-toggle),
+  named layout presets (`P` + `[presets.<name>]` in the config, optional
+  one-key hotkeys), and auto-scaling power/PCIe graphs with an honest
+  `max` legend.
+- **Embedded Prometheus exporter + Grafana dashboard** (nvitop-exporter
+  idea, implemented with the stdlib): `--export [HOST:]PORT` (default bind
+  127.0.0.1:9835, matching nvitop-exporter so its Grafana board is a drop-in)
+  serves `/metrics` (typed families, label escaping, counters for energy/
+  ECC) and `/snapshot` (live JSON). Works with the TUI and headless
+  (`--log --export`). Ships `dashboards/zionstats-prom.json` and a
+  `--doctor` check.
+- Grid layouts now cap card rows to the visible height instead of drawing
+  into the bottom chrome on small terminals with many GPUs.
+- `ZION_CONFIG` environment variable overrides the config file location.
+- `NO_COLOR` support: all color is dropped (bold kept) when the variable is set.
+
+### Fixed
+- The process table rendered the ENC% value under the COMMAND column below
+  120 columns (cells and columns were filtered independently since v0.1).
+- `c` (cooling-mode cycle) silently erased its own status toast and forced an
+  immediate re-sample: a stray block of init code ran right after the flash
+  message was set.
+- Forced `--layout hero` with more than one GPU rendered only the first card;
+  hero now falls back to the grid layout (and the `l` cycle skips hero on
+  multi-GPU systems).
+- The process list queried NVML twice per refresh (the second call only fed
+  the per-user rollup).
+- `begin_frame` cleared the cell grid cell-by-cell; blank rows are now
+  cached and applied with slice assignment (C speed).
+- Duplicate version headings in this file (v0.2.1/0.2.2/0.2.3).
+
 ## v0.3.0 -- usage-triggered blower, headless automation (2026-10-12)
 
 ### Added
@@ -49,7 +94,6 @@
   (Apache-2.0). Port written from scratch against that algorithm.
 
 ## v0.2.3 -- graph rendering overhaul (2026-10-12)
-## v0.2.3 -- graph rendering overhaul (2026-10-12)
 
 ### Fixed
 - **Graphs no longer render as faint dotted dust.** The default graph style
@@ -74,7 +118,6 @@
   bars/borders rendered fine but braille did not.
 
 ## v0.2.2 -- packaging, Apache-2.0, release engineering (2026-10-12)
-## v0.2.2 -- packaging, Apache-2.0, release engineering (2026-10-12)
 
 ### Changed
 - **Relicensed MIT -> Apache-2.0** (explicit patent grant; still permissive).
@@ -94,7 +137,6 @@
 - macOS has no NVIDIA NVML for modern drivers; the binary runs the TUI and
   `--demo` there.
 
-## v0.2.1 -- OSS-readiness pass (2026-10-12)
 ## v0.2.1 -- OSS-readiness pass (2026-10-12)
 
 ### Fixed

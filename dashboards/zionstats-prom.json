@@ -1,0 +1,162 @@
+{
+  "__inputs": [
+    {
+      "name": "DS_PROMETHEUS",
+      "label": "Prometheus",
+      "description": "",
+      "type": "datasource",
+      "pluginId": "prometheus",
+      "pluginName": "Prometheus"
+    }
+  ],
+  "title": "zionstats",
+  "uid": "zionstats-overview",
+  "tags": ["zionstats", "gpu", "nvidia"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": { "from": "now-3h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "gpu",
+        "label": "GPU",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+        "query": "label_values(zionstats_gpu_utilization_percent, gpu)",
+        "refresh": 1,
+        "includeAll": true,
+        "multi": true,
+        "current": { "text": "All", "value": "$__all" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "GPU utilization (%)",
+      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "min": 0, "max": 100, "unit": "percent" }, "overrides": [] },
+      "targets": [
+        { "expr": "zionstats_gpu_utilization_percent{gpu=~\"$gpu\"}", "legendFormat": "GPU {{gpu}} {{name}}", "refId": "A" },
+        { "expr": "zionstats_gpu_memory_utilization_percent{gpu=~\"$gpu\"}", "legendFormat": "mem {{gpu}}", "refId": "B" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "VRAM used / total (bytes)",
+      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+      "targets": [
+        { "expr": "zionstats_gpu_memory_used_bytes{gpu=~\"$gpu\"}", "legendFormat": "used {{gpu}}", "refId": "A" },
+        { "expr": "zionstats_gpu_memory_total_bytes{gpu=~\"$gpu\"}", "legendFormat": "total {{gpu}}", "refId": "B" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Power draw vs limit (W)",
+      "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "watt", "min": 0 }, "overrides": [] },
+      "targets": [
+        { "expr": "zionstats_gpu_power_watts{gpu=~\"$gpu\"}", "legendFormat": "draw {{gpu}}", "refId": "A" },
+        { "expr": "zionstats_gpu_power_limit_watts{gpu=~\"$gpu\"}", "legendFormat": "limit {{gpu}}", "refId": "B" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Temperature (C) -- 90C is the usual slowdown threshold",
+      "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "celsius", "min": 0, "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 83 } ] } }, "overrides": [] },
+      "targets": [
+        { "expr": "zionstats_gpu_temperature_celsius{gpu=~\"$gpu\",sensor=\"gpu\"}", "legendFormat": "GPU {{gpu}}", "refId": "A" },
+        { "expr": "zionstats_gpu_temperature_celsius{gpu=~\"$gpu\",sensor=\"memory\"}", "legendFormat": "VRAM {{gpu}}", "refId": "B" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Clocks (MHz)",
+      "gridPos": { "x": 0, "y": 16, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "hertz", "min": 0 }, "overrides": [] },
+      "targets": [
+        { "expr": "zionstats_gpu_clock_sm_mhz{gpu=~\"$gpu\"} * 1e6", "legendFormat": "SM {{gpu}}", "refId": "A" },
+        { "expr": "zionstats_gpu_clock_mem_mhz{gpu=~\"$gpu\"} * 1e6", "legendFormat": "MEM {{gpu}}", "refId": "B" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "PCIe throughput (bytes/s)",
+      "gridPos": { "x": 12, "y": 16, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "Bps", "min": 0 }, "overrides": [] },
+      "targets": [
+        { "expr": "zionstats_gpu_pcie_rx_bytes_per_second{gpu=~\"$gpu\"}", "legendFormat": "rx {{gpu}}", "refId": "A" },
+        { "expr": "zionstats_gpu_pcie_tx_bytes_per_second{gpu=~\"$gpu\"}", "legendFormat": "tx {{gpu}}", "refId": "B" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Energy: driver counter rate (W) -- rate() of the joule counter",
+      "gridPos": { "x": 0, "y": 24, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "watt", "min": 0 }, "overrides": [] },
+      "targets": [
+        { "expr": "rate(zionstats_gpu_energy_consumption_joules_total{gpu=~\"$gpu\"}[2m])", "legendFormat": "GPU {{gpu}}", "refId": "A" }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Session energy (Wh)",
+      "gridPos": { "x": 12, "y": 24, "w": 6, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "watth", "decimals": 2 }, "overrides": [] },
+      "targets": [
+        { "expr": "zionstats_gpu_session_energy_watt_hour{gpu=~\"$gpu\"}", "legendFormat": "GPU {{gpu}}", "refId": "A" }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Idle-leak power (W)",
+      "gridPos": { "x": 18, "y": 24, "w": 6, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "watt", "decimals": 1 }, "overrides": [] },
+      "targets": [
+        { "expr": "zionstats_gpu_power_avg_watts{gpu=~\"$gpu\"}", "legendFormat": "avg {{gpu}}", "refId": "A" }
+      ]
+    },
+    {
+      "type": "state-timeline",
+      "title": "Throttle bitmask (nonzero = some throttle reason active)",
+      "gridPos": { "x": 0, "y": 32, "w": 24, "h": 6 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "none", "min": 0, "custom": { "fillOpacity": 80, "lineWidth": 1 } }, "overrides": [] },
+      "targets": [
+        { "expr": "zionstats_gpu_throttle_bitmask{gpu=~\"$gpu\"}", "legendFormat": "GPU {{gpu}}", "refId": "A" }
+      ]
+    },
+    {
+      "type": "table",
+      "title": "Top GPU processes by memory",
+      "gridPos": { "x": 0, "y": 38, "w": 24, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "options": { "showHeader": true },
+      "targets": [
+        {
+          "expr": "topk(10, zionstats_process_memory_bytes)",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        { "id": "organize", "options": { "excludeByName": { "Time": true, "__name__": true, "job": true, "instance": true } } }
+      ]
+    }
+  ]
+}

@@ -26,7 +26,7 @@ def _rgb(hexstr: str) -> tuple[int, int, int]:
 
 
 def _hex(rgb: tuple[int, int, int]) -> str:
-    return "#%02x%02x%02x" % rgb
+    return f"#{rgb[0]:02x}{rgb[1]:02x}{rgb[2]:02x}"
 
 
 def mix(a: str, b: str, t: float) -> str:

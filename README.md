@@ -7,11 +7,10 @@
 
 A btop-grade NVIDIA GPU observatory. Dense, colorful, insight-first.
 
-**v0.3.0 — Climate-Aware Cooling + Usage-Triggered Blower**: a keyless global
-weather layer (works anywhere on Earth; the shipped example is Singapore —
-hot, humid, tropical) and optional smart-plug blower-fan automation that
-switches on the moment GPU load starts and off after the rig idles cool.
-Off by default, dry-run first, fail-safe always.
+**v0.4.0 — Process forensics + btop-grade UX + built-in Prometheus exporter**:
+a selectable/tree/detail process explorer with safe signal delivery, full
+mouse support, an in-TUI options menu, layout presets, and a stdlib-only
+Prometheus endpoint with a ready-made Grafana dashboard.
 
 zionstats watches your NVIDIA GPUs the way btop watches your CPU: full-canvas
 TUI, gradient braille graphs, block bars, rounded panels, 16 built-in themes,
@@ -36,8 +35,25 @@ gpu-rig   driver 580.159.03  CUDA<=13.0  [nvml]                          1.0s 19
 ╰──────────────────────────────────────────────────────────╯
 ```
 
+> Screenshots and an asciinema cast are on the todo list — until then,
+> `zionstats --demo` is a 5-second way to see all of it live (no GPU
+> required), including the tree view, detail screen, and menus.
+
 ## Highlights
 
+- **Process forensics** (v0.4.0) -- selectable, scrollable process table;
+  tree view with /proc parent chains; per-process detail screen (full
+  cmdline, cwd, exe, environment, live SM% sparkline); tag/untag; SIGTERM /
+  SIGKILL behind a typed `yes` confirmation, `--readonly`, and hard
+  demo/replay blocks.
+- **btop-grade UX** (v0.4.0) -- full mouse support (click cards, keyhints,
+  rows, menus; wheel scrolls), in-TUI options menu with live-apply +
+  persistence, panel toggles, named layout presets with one-key hotkeys,
+  auto-scaling graphs.
+- **Built-in Prometheus exporter + Grafana dashboard** (v0.4.0) --
+  `--export [HOST:]PORT` serves `/metrics` and `/snapshot` from the same
+  process (stdlib only, no prometheus_client); ships a ready-made Grafana
+  board.
 - **Climate-aware** (v0.3.0) -- keyless global weather, dew-point/wet-bulb
   physics, cooling-effectiveness index, and optional fail-safe smart-plug
   blower automation (see below).
@@ -177,6 +193,82 @@ plug that pairs with a Tuya app should behave the same way.
 > recommends dry-run first, force-offs on stale telemetry, and never touches
 > real plugs in `--demo`.
 
+## Process forensics (v0.4)
+
+The process table is now a full explorer. UI concepts follow nvitop; the
+implementation is original (see Credits).
+
+```
+up/down or j/k   move              enter  detail screen
+pgup/pgdn        page              space  tag / untag
+home/end         first / last      v      tree <-> flat
+/                regex filter      T      SIGTERM (type "yes")
+s                cycle sort        K      SIGKILL (type "yes")
+```
+
+- **Tree view** (`v`) splices each process's /proc parent chain above it
+  (`sshd -> bash run.sh -> python train.py`), so you can see *who launched*
+  the GPU hog.
+- **Detail screen** (Enter) shows the full command line, cwd, exe, ancestor
+  chain, the process environment (scroll with j/k), and a live SM%
+  sparkline from the NVML per-process metrics.
+- **Signals** (`T`/`K`) require typing `yes` — no accidental kills — and are
+  refused outright under `--readonly` (or `readonly = true` in the config),
+  in `--demo`/`--replay`, and without a live NVML provider. On Windows,
+  SIGTERM is delivered by the OS as a hard terminate; the confirmation and
+  `--readonly` guard are the safety rails there.
+- **Regex filter** (`/`) matches user, command, or PID (case-insensitive),
+  composes with `f` (show only my processes), and persists to the config.
+
+## Prometheus exporter + Grafana (v0.4)
+
+One flag turns the monitor into a scrape target — no second process, no
+extra package (the idea is credited to nvitop-exporter; the implementation
+is stdlib `http.server`):
+
+```bash
+zionstats --export 127.0.0.1:9835     # or [export] enabled = true in config
+#   GET /metrics    Prometheus text format (typed families, counters for energy/ECC)
+#   GET /snapshot   live JSON (same shape as --snapshot)
+```
+
+- Default bind is **127.0.0.1**; the HTTP thread never touches NVML, so
+  scraping cannot disturb sampling. Metrics appear after the first tick.
+- Metric names are `zionstats_gpu_*` / `zionstats_process_*` with
+  `{gpu, name, uuid}` labels; the default port 9835 matches nvitop-exporter,
+  so a board built for it works unchanged.
+- **Grafana**: import [`dashboards/zionstats-prom.json`](dashboards/zionstats-prom.json)
+  (utilization, VRAM, power-vs-limit, temperatures, clocks, PCIe, energy
+  rate + session Wh, throttle state-timeline, top-processes table).
+- Headless mode composes: `zionstats --log run.jsonl --export :9835`.
+- Security: no auth by design — keep the loopback bind on shared hosts, and
+  set `[export] expose_processes = false` if PIDs/usernames/cmdlines are
+  sensitive in your environment (see [SECURITY.md](SECURITY.md)).
+
+## Presets, panels, mouse (v0.4)
+
+- **Options menu** (`O`) — every setting (interval, theme, graph style,
+  layout, sort, filters, units, auto-scale, mouse, readonly) in one overlay;
+  cycles apply live and persist to the config, exactly like the direct keys.
+- **Panels** (`x`) — toggle detail / climate / alerts / processes
+  (btop-style box toggling); state is saved.
+- **Presets** (`P`) — named bundles of layout + theme + graph style +
+  interval + visible panels:
+
+  ```toml
+  [presets.focus]
+  layout = "compact"
+  graph_style = "ascii"
+  interval = 0.5
+  panels = ["procs"]      # optional; keys: detail climate alerts procs
+  key = "Z"               # optional one-key hotkey (unbound keys only)
+  ```
+
+- **Mouse** — click a GPU card to select it, click the key-hint bar to press
+  those keys, click process rows (double-click opens the detail screen),
+  wheel scrolls the list. All menus are click-navigable. Disable with
+  `mouse = false`. In tmux, `set -g mouse on` lets clicks through.
+
 ## Install
 
 ```bash
@@ -214,20 +306,29 @@ zionstats --snapshot          # one-shot JSON
 zionstats --record trace.ndjson.gz --duration 60
 zionstats --replay trace.ndjson.gz     # replay in the full TUI
 zionstats --log run.jsonl     # headless logging until Ctrl-C
+zionstats --log run.jsonl --export :9835   # headless + Prometheus
+zionstats --export 127.0.0.1:9835         # TUI + scrape target
+zionstats --readonly          # disable process signals
 zionstats --doctor            # environment health check
 zionstats --location 51.5,-0.13,London    # weather anywhere on Earth
 zionstats --plug-test "blower on"         # verify a plug safely
 zionstats --list-themes
 ```
 
+Environment: `ZION_CONFIG` relocates the config file; `NO_COLOR` drops all
+color (bold kept).
+
 ## Keys
 
 ```
-q quit        t theme picker   m cycle theme   1-9/<-> select GPU
-d detail      w weather        o blower        c cool mode
-a blower auto p pause          r reset stats   s sort procs
-f filter me   F Fahrenheit     b paint bg      l layout
-+/- rate      ? help
+j/k or up/down move procs     enter  process detail     space  tag
+v tree/flat    / regex        T SIGTERM              K SIGKILL
+O options      x panels       P presets              1-9/<-> select GPU
+q quit         t theme picker m cycle theme          d detail
+w weather      o blower       c cool mode            a blower auto
+p pause        r reset stats  s sort procs           f filter me
+F Fahrenheit   b paint bg     l layout               +/- rate
+? help
 ```
 
 `a` is the one-press automation switch: AUTO watches GPU usage and runs the
@@ -248,27 +349,35 @@ running, and an alert fires once -- not spam -- until the state clears.
 
 - The config file (`~/.config/zionstats/config.toml`) can hold plug secrets
   (Tuya local keys, Home Assistant tokens). It is written with `0600`
-  permissions -- keep it that way if you edit by hand.
+  permissions -- keep it that way if you edit by hand. `ZION_CONFIG`
+  relocates it.
 - The weather layer is the **only** outbound network call (keyless HTTPS to
   Open-Meteo, cached, and fully disableable with `[weather] enabled = false`
   or `--no-weather`). Plug control is LAN-only; nothing is sent to any cloud.
+  The optional metrics exporter **listens** (loopback by default) -- see
+  [SECURITY.md](SECURITY.md) for what it exposes.
 - No telemetry, no accounts, no eval/subprocess anywhere in the codebase.
 - Cooling automation ships **disabled** and `dry_run` is the recommended
   first mode; `--demo` structurally cannot touch real plugs.
+- Process signals (`T`/`K`) need a typed `yes`; `--readonly` disables them
+  entirely; `--demo`/`--replay` hard-block them.
 
 ## Contributing
 
 Issues and PRs welcome. Development loop:
 
 ```bash
-pip install -e .
-python tests/test_climate.py && python tests/test_cooling.py \
-  && python tests/test_themes_and_config.py
-zionstats --demo          # everything interesting, no GPU needed
+pip install -e . && pip install ruff mypy
+python tests/test_*.py        # each file runs standalone, no GPU needed
+ruff check . && mypy zionstats
+zionstats --demo              # everything interesting, no GPU needed
 ```
 
-Please keep new backends local-first (no cloud calls), and keep every
-feature working with `--demo` so screenshots and CI stay hardware-free.
+Please keep new backends local-first (no cloud calls), keep every feature
+working with `--demo` so screenshots and CI stay hardware-free, and keep the
+runtime stdlib-first (only `nvidia-ml-py` may be imported unconditionally).
+Releases publish to PyPI via trusted publishing (OIDC) — maintainers need a
+one-time "trusted publisher" entry on PyPI for this repo/workflow.
 
 ## FAQ
 
@@ -350,17 +459,50 @@ names and trademarks belong to their respective owners.
 
 ## Credits and prior art
 
-zionstats is an original implementation (no nvitop code), standing on the
-shoulders of:
+zionstats stands on the shoulders of the tools that defined this genre.
+License compliance is deliberate: Apache-2.0 code is ported with attribution
+headers and a [NOTICE](NOTICE) file; GPL-licensed code is never copied —
+features are clean-room reimplementations from public behavior.
 
-- **[nvitop](https://github.com/XuehaiPan/nvitop)** -- the interactive
-  NVIDIA-GPU process viewer that inspired this project
-- **[btop](https://github.com/aristocratos/btop)** -- the design language:
-  braille graphs, block bars, rounded panels, dense theming
-- **[all-smi](https://github.com/lablup/all-smi)** -- record/replay, JSON
-  snapshots, doctor, provider abstraction
-- **[gputop](https://github.com/rib/gputop)** -- headless machine-readable
-  logging heritage
+- **[btop](https://github.com/aristocratos/btop)** (Apache-2.0) — the design
+  language and the graph engine: the quadrant-transition renderer is ported
+  from `btop_draw.cpp` with per-row gradient shading; options menu, mouse
+  interaction, box toggling, and presets follow btop's UI concepts.
+- **[nvitop](https://github.com/XuehaiPan/nvitop)** (API: Apache-2.0;
+  TUI/CLI: GPL-3.0) — the project that inspired this one. The `NaType`
+  safe-arithmetic sentinel is ported from the Apache-2.0 `nvitop/api`
+  layer; the TTL-cache pattern follows its use of `cachetools` (ours is an
+  original stdlib implementation); the process tree, tagging, and
+  kill-confirmation UX are clean-room reimplementations — no GPL code used.
+- **[nvitop-exporter](https://github.com/XuehaiPan/nvitop)** — the embedded
+  metrics-endpoint + Grafana dashboard idea (our implementation is stdlib;
+  port 9835 matches for drop-in compatibility).
+- **[nvtop](https://github.com/Syllo/nvtop)** (GPL-3.0, ideas only) and
+  **[gpustat](https://github.com/wookayin/gpustat)** — layout and process
+  listing inspiration.
+- **[all-smi](https://github.com/lablup/all-smi)** — record/replay, JSON
+  snapshots, doctor, provider abstraction.
+- **[gputop](https://github.com/rib/gputop)** — headless machine-readable
+  logging heritage.
+
+### How zionstats compares (honest table)
+
+|  | zionstats | btop | nvitop | nvtop |
+|---|---|---|---|---|
+| NVIDIA metrics depth | full NVML 13 + energy + pmon | good | full | good |
+| Process tree / detail / env | yes | n/a (CPU procs) | yes | partial |
+| Signals with confirm + readonly | yes | yes (CPU) | yes | partial |
+| Mouse | yes | yes | yes | partial |
+| Options menu / presets | yes | yes | env-vars only | setup window |
+| Prometheus + Grafana built-in | yes | no | separate pkg | no |
+| Multi-vendor (AMD/Intel) | planned v0.5 | yes | no | yes |
+| Climate / condensation / blower automation | unique | no | no | no |
+| Verdict chips + alerts + session energy | unique | no | partial | no |
+| Record / replay / headless log | yes | no | partial | no |
+| Runtime deps | 1 (nvidia-ml-py) | none (C++) | nvidia-ml-py, psutil, cachetools | none (C++) |
+
+All four tools are excellent; zionstats aims to be the best *NVIDIA-first,
+insight-first* option — vendor breadth is the known v0.5 gap.
 
 ## License
 

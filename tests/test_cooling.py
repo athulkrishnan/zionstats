@@ -93,7 +93,7 @@ def test_duty_cap():
     ctl.cfg.max_duty_min = 0.05                         # 3s cap
     ctl.evaluate(sample, weather)                       # ON
     clock["t"] += 5
-    st = ctl.evaluate(replace(sample, temp_gpu=85.0), weather)
+    ctl.evaluate(replace(sample, temp_gpu=85.0), weather)
     assert plug.state is False
     assert any(e.kind == "duty" for e in ctl.events)
 
@@ -146,7 +146,6 @@ def test_readback_mismatch_retries():
             return False                                # claims off after on()
 
     lp = LyingPlug("liar", fail_next=2)                 # 2 failures -> 3rd ok
-    plug = lp
     ctl.plugs = [lp]
     ctl.evaluate(sample, weather)
     assert lp.state is True                             # 3rd attempt verified
@@ -156,7 +155,7 @@ def test_readback_mismatch_retries():
 def test_ambient_fallback_without_weather():
     plug, ctl, clock, weather, sample = make(temp=85.0)
     ctl.cfg.mode = "auto"
-    st = ctl.evaluate(replace(sample, temp_gpu=85.0), None)
+    ctl.evaluate(replace(sample, temp_gpu=85.0), None)
     assert ctl.state.on is True                         # fallback ambient 30C, delta 55
     st2 = ctl.evaluate(replace(sample, ts=clock["t"], temp_gpu=33.0), None)  # delta 3C
     assert st2.would_on is False or "delta" in st2.reason
@@ -242,7 +241,7 @@ def test_usage_ignores_stale_weather():
     plug, ctl, clock, weather, sample = make(temp=60.0, util=40.0, trigger="usage")
     ctl.evaluate(sample, weather)                       # ON
     clock["t"] += 60 * 60                               # weather now 1h stale
-    st = ctl.evaluate(replace(sample, ts=clock["t"], util_gpu=40.0, temp_gpu=60.0), weather)
+    ctl.evaluate(replace(sample, ts=clock["t"], util_gpu=40.0, temp_gpu=60.0), weather)
     assert plug.state is True, "usage trigger must not care about weather"
     assert ctl.state.inhibited == ""
     assert not any(e.kind == "inhibit" for e in ctl.events)

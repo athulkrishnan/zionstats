@@ -9,6 +9,7 @@ allocated from an LRU pool of curses color pairs.
 from __future__ import annotations
 
 import curses
+import os
 
 DEFAULT_BG = -1  # use_default_colors()
 
@@ -40,7 +41,7 @@ _256_TO_16 = _build_256_to_16()
 
 
 class Screen:
-    def __init__(self, stdscr: "curses._CursesWindow", paint_bg: bool = True) -> None:
+    def __init__(self, stdscr, paint_bg: bool = True) -> None:
         self.stdscr = stdscr
         self.paint_bg = paint_bg
         curses.start_color()
@@ -54,6 +55,8 @@ class Screen:
         # 256-palette value to the nearest base-16 color instead (the silent
         # black-on-black failure this prevents cost us one bug report)
         self.degrade = self.ncolors < 256
+        # NO_COLOR (https://no-color.org): drop all color, keep bold only
+        self.no_color = bool(os.environ.get("NO_COLOR"))
 
         self._pairs: dict[tuple[int, int], int] = {}
         self._lru: list[int] = []
@@ -73,6 +76,7 @@ class Screen:
             [blank] * w for _ in range(h)
         ]
         self._prev = []
+        self._blank_rows: dict[int, list] = {}
 
     def resize(self, rows: int, cols: int) -> None:
         self.rows, self.cols = rows, cols
@@ -88,6 +92,8 @@ class Screen:
     # ------------------------------------------------------------ color pool
 
     def _attr(self, fg: int, bg: int, bold: bool) -> int:
+        if self.no_color:
+            return curses.A_BOLD if bold else 0
         if self.degrade:
             fg = _256_TO_16.get(fg, 7 if fg else 0)
             if bg != DEFAULT_BG:
@@ -125,10 +131,12 @@ class Screen:
 
     def begin_frame(self, bg_index: int | None = None) -> None:
         fill_bg = bg_index if (self.paint_bg and bg_index is not None) else DEFAULT_BG
-        blank = (" ", 0, fill_bg, False)
-        for row in self._cur:
-            for i in range(self.cols):
-                row[i] = blank
+        row = self._blank_rows.get(fill_bg)
+        if row is None:
+            row = [(" ", 0, fill_bg, False)] * self.cols
+            self._blank_rows[fill_bg] = row
+        for r in self._cur:
+            r[:] = row
 
     def put(
         self,
@@ -160,8 +168,6 @@ class Screen:
             self.put(x + i, y, ch, fg, bg, bold)
 
     def flush(self) -> None:
-        import os as _os
-
         self._err_count = getattr(self, "_err_count", 0)
         self._err_last = getattr(self, "_err_last", "")
 
@@ -203,7 +209,7 @@ class Screen:
                     continue
                 x = run_end
         self._prev = [row[:] for row in self._cur]
-        if self._err_count and _os.environ.get("ZION_DEBUG_FLUSH"):
+        if self._err_count and os.environ.get("ZION_DEBUG_FLUSH"):
             with open("/tmp/zs_flush_err.log", "a") as _f:
                 _f.write(f"errors={self._err_count} last={self._err_last}\n")
         try:

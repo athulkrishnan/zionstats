@@ -4,10 +4,9 @@ from __future__ import annotations
 
 import time
 
-from .cells import DEFAULT_BG, Screen
+from .cells import Screen
 from .themes import Theme
-from .widgets import Table, chip, graph, graph_braille, hbar, keyhints, panel_frame, sparkline
-
+from .widgets import Table, chip, graph, hbar, keyhints, panel_frame, sparkline
 
 # ----------------------------------------------------------------- helpers
 
@@ -46,9 +45,10 @@ def uptime_str() -> str:
 
 
 def plan_layout(W: int, H: int, n_gpu: int, mode: str, detail: bool,
-                climate: bool = False) -> dict:
+                climate: bool = False, procs: bool = True) -> dict:
     """Returns rects for content panels.  Header (2 rows) + alerts (1) +
-    keyhints (1) are fixed chrome; everything else is content."""
+    keyhints (1) are fixed chrome; everything else is content.  `procs`
+    (btop-style box toggle) hands the process table's rows to the cards."""
     content_y = 2
     chrome_bottom = 1  # keyhints row
     content_h = H - content_y - chrome_bottom
@@ -59,6 +59,10 @@ def plan_layout(W: int, H: int, n_gpu: int, mode: str, detail: bool,
     else:
         auto = "grid"
     mode = auto if mode == "auto" else mode
+    # hero shows one card; with multiple GPUs a forced hero would silently
+    # drop every card after the first -- render the grid instead
+    if mode == "hero" and n_gpu > 1:
+        mode = "grid"
     rects: dict = {"mode": mode, "content_y": content_y, "content_h": content_h}
 
     # optional climate strip (v0.2) -- 10 rows carved out of the content area
@@ -69,10 +73,10 @@ def plan_layout(W: int, H: int, n_gpu: int, mode: str, detail: bool,
     if mode == "compact":
         # a full-height card in a tall pane is a void -- cap it and give the
         # process table the rest
-        card_h = min(content_h, 13)
+        card_h = min(content_h, 13) if procs else content_h
         rects["cards"] = [(0, content_y, W, card_h)]
         rest = content_h - card_h - 1
-        rects["proc"] = (0, content_y + card_h + 1, W, rest) if rest >= 6 else None
+        rects["proc"] = (0, content_y + card_h + 1, W, rest) if (procs and rest >= 6) else None
         rects["detail"] = None
         rects["climate"] = (0, content_y + content_h + 1, W, climate_h) if climate_h else None
         return rects
@@ -80,7 +84,7 @@ def plan_layout(W: int, H: int, n_gpu: int, mode: str, detail: bool,
     cols = 2 if W >= 150 and n_gpu > 1 else 1
     rows_g = (n_gpu + cols - 1) // cols
     cards_need = rows_g * 9 + 2
-    if content_h >= 16:
+    if content_h >= 16 and procs:
         top_cap = max(18, min(content_h - 7, cards_need))
         proc_h = content_h - top_cap
         top_h = top_cap
@@ -102,10 +106,15 @@ def plan_layout(W: int, H: int, n_gpu: int, mode: str, detail: bool,
         cols = 2 if W >= 150 and n_gpu > 1 else 1
         rows = (n_gpu + cols - 1) // cols
         ch = max(7, min(13, top_h // rows - (rows - 1)))
+        # only emit card rows that fit above the process area -- a card row
+        # drawn past the content height would collide with the bottom chrome
+        rows_fit = max(1, (top_h + 1) // (ch + 1))
         cw = W // cols - 1
         cards = []
         for i in range(n_gpu):
             r, c = divmod(i, cols)
+            if r >= rows_fit:
+                break
             cards.append((c * (cw + 1), content_y + r * (ch + 1), cw, ch))
         rects["cards"] = cards
         dtop = content_y + rows * (ch + 1)
@@ -204,6 +213,7 @@ def draw_gpu_card(
     s = app.samples[idx]
     ins = app.insights.get(idx)
     hist = app.hist.get(idx, {})
+    app._add_zone(x, y, w, h, "gpu", idx)   # click to select this GPU
     name = s.name.replace("NVIDIA GeForce ", "").replace("NVIDIA ", "")
     right = f"{s.pstate or '-'} · {s.arch}" + (f" · MIGx{s.mig_instances}" if s.mig_instances else "")
     panel_frame(scr, x, y, w, h, f"GPU {idx} ─ {name}", th, selected, right)
@@ -236,7 +246,8 @@ def draw_gpu_card(
     if show_labels or gh:
         graph(scr, getattr(app, "graph_style", "block"), x + 2, r, gw, gh, u, 100.0, th, "grad", floor=0.06)
         if w >= 70:
-            graph(scr, getattr(app, "graph_style", "block"), x + 4 + half, r, gw, gh, m, 100.0, th, "grad_mem", floor=0.06)
+            gs = getattr(app, "graph_style", "block")
+            graph(scr, gs, x + 4 + half, r, gw, gh, m, 100.0, th, "grad_mem", floor=0.06)
         r += gh
     # meters row 1: power + temp (fixed split, no collision)
     mw = max(10, (w - 6) // 2 - 16)
@@ -281,7 +292,6 @@ def draw_gpu_card(
     sat = f" ({ins.pcie_sat:.0%})" if ins else ""
     tput = ""
     if s.pcie_rx_kbps is not None:
-        g = (s.pcie_rx_kbps + (s.pcie_tx_kbps or 0)) / 1e6
         tput = f" ↓{(s.pcie_rx_kbps or 0)/1e6:.1f} ↑{(s.pcie_tx_kbps or 0)/1e6:.1f}GB/s{sat}"
     fan = f" · FAN {s.fan_pct}%" if s.fan_pct is not None else ""
     line = f"{sm_txt} · {memc} · PCIe {gen} {width}{tput}{fan}"
@@ -322,7 +332,6 @@ def _tile(scr, app, x: int, y: int, w: int, h: int, title: str,
     """A Grafana-style panel: rounded frame, title + now/lo/hi legend in the
     border, gradient braille time-series inside."""
     th: Theme = app.theme
-    bg = th.q("bg")
     series = list(data)[-((w - 2) * 2):] or [0.0]
     now_v, lo, hi = series[-1], min(series), max(series)
     for legend in (
@@ -336,6 +345,14 @@ def _tile(scr, app, x: int, y: int, w: int, h: int, title: str,
     if h >= 3:
         graph(scr, getattr(app, "graph_style", "block"), x + 1, y + 1, w - 2,
               h - 2, series, vmax or 1.0, th, grad, hlines=hlines, floor=0.06)
+
+
+def _as_legend(vmax: float, fixed_max: float) -> str:
+    """Suffix for the tile title when the y-axis is auto-scaled, so the
+    rescaled axis is visible rather than silently lying about the range."""
+    if vmax > 0 and fixed_max > 0 and abs(vmax - fixed_max) / fixed_max > 0.08:
+        return f" ·max {vmax:.0f}"
+    return ""
 
 
 def draw_detail(scr: Screen, app, x: int, y: int, w: int, h: int, idx: int) -> None:
@@ -373,20 +390,30 @@ def draw_detail(scr: Screen, app, x: int, y: int, w: int, h: int, idx: int) -> N
     rate = ins.thermal_rate_c_per_min if ins else 0.0
     arrow = "▲" if rate > 2 else ("▼" if rate < -2 else "")
 
+    # auto-scale (btop-style rolling max, decayed): power + pcie tiles follow
+    # peaks and bleed down slowly; the legend prints the live axis max
+    autoscale = getattr(app, "autoscale", {}) or {}
+    p_as = autoscale.get((idx, "power"))
+    pc_as = autoscale.get((idx, "pcie"))
+    p_vmax = p_as.vmax if (getattr(app, "auto_scale", False) and p_as and p_as.vmax > 1.0) \
+        else limit
+    pc_vmax = pc_as.vmax if (getattr(app, "auto_scale", False) and pc_as and pc_as.vmax > 0.5) \
+        else theo
+
     tiles = [
         # temp series is normalized to the 25..tmax window; fmt denormalizes
         ("TEMPERATURE" + arrow, temp_series, 1.0, "grad_temp",
          lambda v: _fmt_num(25.0 + v * max(1.0, tmax - 25.0), "C"), t_th),
-        ("POWER W", list(hist.get("power", [])) or [s.power_w or 0], limit,
-         "grad_power", lambda v: _fmt_num(v, "W"), [(0.92, 0)]),
+        ("POWER W" + _as_legend(p_vmax, limit), list(hist.get("power", [])) or [s.power_w or 0],
+         p_vmax, "grad_power", lambda v: _fmt_num(v, "W"), [(0.92, 0)]),
         ("GPU UTIL %", list(hist.get("util_gpu", [])) or [0], 100.0,
          "grad", lambda v: _fmt_num(v, "%"), []),
         ("VRAM %", memfrac or [0], 100.0, "grad_mem",
          lambda v: _fmt_num(v, "%"), [(90.0, 0)]),
         ("SM CLOCK", list(hist.get("sm", [])) or [s.clocks_sm_mhz or 0], smax,
          "grad", lambda v: _fmt_num(v, "MHz"), []),
-        ("PCIE GB/s", list(hist.get("pcie", [])) or [0], theo,
-         "grad_power", lambda v: f"{v:.1f}", [(0.7, 0)]),
+        ("PCIE GB/s" + _as_legend(pc_vmax, theo), list(hist.get("pcie", [])) or [0],
+         pc_vmax, "grad_power", lambda v: f"{v:.1f}", [(0.7, 0)]),
     ]
 
     tile_h = 5 if h >= 24 else 4
@@ -513,8 +540,15 @@ def draw_processes(scr: Screen, app, x: int, y: int, w: int, h: int) -> None:
     bg = th.q("bg")
     sort = app.sort
     filt = "me" if app.filter_me else "all"
-    panel_frame(scr, x, y, w, h, f"Processes ─ sort:{sort} · filter:{filt}", th, False,
-                right=f"{len(app.proc_rows)} procs" if app.proc_rows else "")
+    tree = bool(getattr(app, "tree_mode", False))
+    tagged: set = getattr(app, "tagged", set()) or set()
+    cursor_pid = getattr(app, "proc_cursor_pid", None)
+    regex = getattr(app, "_filter_re_src", "") or ""
+    filt += f" · /{regex}/i" if regex else ""
+    view = "tree" if tree else "flat"
+    panel_frame(scr, x, y, w, h,
+                f"Processes ─ sort:{sort} · filter:{filt} · view:{view}", th, False,
+                right=(f"{len(app.proc_rows)} procs" if app.proc_rows else ""))
     if h < 5:
         return
     # per-user rollup line
@@ -523,35 +557,98 @@ def draw_processes(scr: Screen, app, x: int, y: int, w: int, h: int) -> None:
             f"Σ {u}: {n}p · {mem:.1f}GiB" for u, n, mem in app.user_rollup[:3]
         )
         scr.puts(x + 2, y + 1, ru, th.q("accent"), bg, maxw=w - 4)
-    cols = [c for c in PROC_COLS]
+    cols = [("TAG", 3, "^")] + [c for c in PROC_COLS]
     if w < 120:
         cols = [c for c in cols if c[0] not in ("ENC%", "CPU%")]
     if w < 95:
         cols = [c for c in cols if c[0] not in ("MEM",)]
     cols[-1] = ("COMMAND", max(8, w - 4 - sum(c[1] + 1 for c in cols[:-1])), "<")
     table = Table(cols)
-    rows = []
-    colors = []
-    for p in app.proc_rows:
-        rows.append([
-            str(p.pid),
-            p.user[:13],
-            p.type,
-            str(p.gpu_index),
-            f"{p.mem_used / 2**30:.2f}Gi" if p.mem_used >= 2**20 else f"{p.mem_used >> 10}Ki",
-            f"{p.sm_pct:.0f}" if p.sm_pct is not None else "-",
-            f"{p.enc_pct:.0f}" if p.enc_pct is not None else "-",
-            f"{p.cpu_pct:.0f}" if p.cpu_pct is not None else "-",
-            p.command,
-        ])
-        pc = [None] * len(cols)
-        pc[2] = th.q("ok") if "C" in p.type else th.q("accent")
-        sm_col = next((i for i, c in enumerate(cols) if c[0] == "SM%"), None)
-        if sm_col is not None and p.sm_pct is not None and p.sm_pct > 90:
-            pc[sm_col] = th.q("warn")
-        colors.append(pc)
+    col_names = [c[0] for c in cols]
+    rows: list[list[str]] = []
+    colors: list[list[int | None]] = []
+    dim_rows: set[int] = set()
+    selectable: dict[int, int] = {}   # pid -> row index (non-ancestor rows only)
+
+    def emit(values: dict[str, str], color: list[int | None],
+             dim: bool, indent: int = 0, pid: int | None = None) -> None:
+        # columns and cells are filtered independently elsewhere; map by
+        # column NAME so narrow layouts can never shift a value into the
+        # wrong column (v0.3 rendered ENC% under COMMAND below 120 cols)
+        if indent:
+            values["COMMAND"] = ("│ " * min(indent, 6)) + ("└ " if indent else "") \
+                + values["COMMAND"]
+        if pid is not None:
+            selectable[pid] = len(rows)
+        rows.append([values[n] for n in col_names])
+        colors.append(color)
+        if dim:
+            dim_rows.add(len(rows) - 1)
+
+    if tree:
+        for trow in getattr(app, "_tree_rows", []) or []:
+            indent = min(trow.depth, 6)
+            if trow.is_ancestor:
+                emit({"TAG": " ", "PID": str(trow.pid), "USER": "?", "T": "─",
+                      "GPU": str(trow.gpu_index), "MEM": "-", "SM%": "-",
+                      "ENC%": "-", "CPU%": "-", "COMMAND": trow.label},
+                     [None] * len(cols), True, indent)
+            else:
+                p = trow.proc
+                emit(_proc_values(p, tagged),
+                     _proc_colors(th, cols, p), False, indent, pid=p.pid)
+    else:
+        for p in app.proc_rows:
+            emit(_proc_values(p, tagged), _proc_colors(th, cols, p), False, pid=p.pid)
+
     head_rows = 3 if app.user_rollup else 2
-    table.draw(scr, x + 2, y + head_rows, w - 4, rows, th, max(1, h - head_rows - 2), color_rows=colors)
+    n_visible = max(1, h - head_rows - 2)
+    # window follows the cursor (pid-keyed selection survives re-sorts)
+    top = int(getattr(app, "proc_top", 0) or 0)
+    cursor_idx: int | None = None
+    if cursor_pid is not None:
+        cursor_idx = selectable.get(cursor_pid)
+    if cursor_idx is not None:
+        if cursor_idx < top:
+            top = cursor_idx
+        elif cursor_idx >= top + n_visible:
+            top = cursor_idx - n_visible + 1
+    max_top = max(0, len(rows) - n_visible)
+    top = max(0, min(top, max_top))
+    app.proc_top = top
+    table.draw(scr, x + 2, y + head_rows, w - 4, rows, th, n_visible, top=top,
+               color_rows=colors, cursor=cursor_idx, dim_rows=dim_rows)
+    # clickable rows (visible window only)
+    rows_y0 = y + head_rows + 2
+    for pid, ridx in selectable.items():
+        if top <= ridx < top + n_visible:
+            app._add_zone(x + 2, rows_y0 + (ridx - top), w - 4, 1, "procrow", pid)
+
+
+def _proc_values(p, tagged: set) -> dict[str, str]:
+    return {
+        "TAG": "▪" if p.pid in tagged else " ",
+        "PID": str(p.pid),
+        "USER": p.user[:13],
+        "T": p.type,
+        "GPU": str(p.gpu_index),
+        "MEM": f"{p.mem_used / 2**30:.2f}Gi" if p.mem_used >= 2**20 else f"{p.mem_used >> 10}Ki",
+        "SM%": f"{p.sm_pct:.0f}" if p.sm_pct is not None else "-",
+        "ENC%": f"{p.enc_pct:.0f}" if p.enc_pct is not None else "-",
+        "CPU%": f"{p.cpu_pct:.0f}" if p.cpu_pct is not None else "-",
+        "COMMAND": p.command,
+    }
+
+
+def _proc_colors(th: Theme, cols: list, p) -> list[int | None]:
+    pc: list[int | None] = [None] * len(cols)
+    t_idx = next((i for i, c in enumerate(cols) if c[0] == "T"), None)
+    if t_idx is not None:
+        pc[t_idx] = th.q("ok") if "C" in p.type else th.q("accent")
+    sm_col = next((i for i, c in enumerate(cols) if c[0] == "SM%"), None)
+    if sm_col is not None and p.sm_pct is not None and p.sm_pct > 90:
+        pc[sm_col] = th.q("warn")
+    return pc
 
 
 # ----------------------------------------------------------------- climate
@@ -565,7 +662,6 @@ def draw_climate_panel(scr: Screen, app, x: int, y: int, w: int, h: int) -> None
         panel_frame(scr, x, y, w, h, "Climate", th, False)
         scr.puts(x + 2, y + 1, "waiting for first observation...", th.q("dim"), bg)
         return
-    prov_label = getattr(app.weather, "label", "")
     hot = app._hottest_sample()
     tgpu = (hot.temp_gpu if hot else None)
     mode = getattr(getattr(app, "controller", None), "cfg", None)
@@ -579,7 +675,8 @@ def draw_climate_panel(scr: Screen, app, x: int, y: int, w: int, h: int) -> None
     )
     if w < 40 or h < 6:
         return
-    t = lambda c: fmt_temp(c, app.fahrenheit)
+    def t(c):
+        return fmt_temp(c, app.fahrenheit)
     r = y + 1
     eff = wmo.effectiveness(tgpu) if tgpu is not None else 0.0
     scr.puts(
@@ -657,7 +754,12 @@ def draw_alerts(scr: Screen, app, y: int, W: int) -> None:
 
 def draw_keyhints(scr: Screen, app, y: int, W: int) -> None:
     th: Theme = app.theme
+    # contextual hint sets: the bar cannot fit all bindings, so show the
+    # process keys when a process is focused and trim the rest
     hints = [
+        ("j/k", "Procs"), ("enter", "Proc info"), ("space", "Tag"),
+        ("v", "Tree"), ("/", "Regex"), ("T", "Term"), ("K", "Kill"),
+        ("O", "Options"), ("x", "Panels"), ("P", "Presets"),
         ("q", "Quit"), ("t", "Theme"), ("m", "Next"),
         ("d", "Detail"), ("w", "Weather"), ("o", "Blower"), ("c", "Cool mode"),
         ("a", "Blower auto"),
@@ -665,4 +767,7 @@ def draw_keyhints(scr: Screen, app, y: int, W: int) -> None:
         ("s", "Sort"), ("f", "Filter"), ("F", "DegF"),
         ("b", "BG"), ("l", "Layout"), ("+/-", "Rate"), ("?", "Help"),
     ]
-    keyhints(scr, y, hints, th, W)
+    # clickable hints: single-character keys only ("j/k" and "+/-" are labels)
+    keyhints(scr, y, hints, th, W,
+             on_zone=lambda x, yy, ww, hh, k: app._add_zone(x, yy, ww, hh, "key", k)
+             if len(k) == 1 else None)
