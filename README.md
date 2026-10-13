@@ -189,8 +189,9 @@ pip install .                                          # from a checkout
 Or grab a self-contained binary from
 [Releases](https://github.com/athulkrishnan/zionstats/releases) (bundled
 Python, no interpreter needed) — `linux_amd64`, `linux_arm64`,
-`macOS_amd64`, `macOS_arm64`, `windows_amd64`, each with a `checksums.txt`.
-Other platforms: `pip install` from source runs anywhere Python 3.9+ does.
+`macOS_arm64`, `windows_amd64`, each with a `checksums.txt`.
+macOS Intel and other platforms: `pip install` from source runs anywhere
+Python 3.9+ does.
 
 | Platform | Live NVML metrics | Notes |
 |---|---|---|

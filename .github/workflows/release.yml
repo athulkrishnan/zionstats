@@ -29,7 +29,8 @@ jobs:
         include:
           - { os: ubuntu-22.04, target: linux_amd64 }
           - { os: ubuntu-22.04-arm, target: linux_arm64 }
-          - { os: macos-13, target: macOS_amd64 }
+          # intel-mac (macos-13) omitted: runner pool is starved; macOS Intel
+          # users are covered by the pure-python wheel via pip
           - { os: macos-14, target: macOS_arm64 }
           - { os: windows-2022, target: windows_amd64 }
     runs-on: ${{ matrix.os }}
@@ -101,5 +102,5 @@ jobs:
 
             Binaries are self-contained (bundled Python). They still need the
             **NVIDIA driver** for live metrics; without a GPU use `--demo`.
-            Prebuilt targets: linux amd64/arm64, macOS amd64/arm64, windows
-            amd64. Other platforms: `pip install` from source.
+            Prebuilt targets: linux amd64/arm64, macOS arm64, windows amd64.
+            macOS Intel and other platforms: `pip install` from source.
