@@ -132,15 +132,28 @@ def log_loop(provider, path: str, interval: float, cfg=None, exporter=None) -> N
     `exporter` (optional) receives every frame so --log --export works."""
     rec = Recorder(path)
     env = provider.environment()
+    is_demo = env.get("provider") == "demo"
     ctl = None
     if cfg is not None and cfg.cooling.get("enabled"):
         from .cooling import CoolingController, config_from_section
-        from .plugs import build_plugs
+        from .plugs import MockPlug, Plug, build_plugs
 
-        plugs, errors = build_plugs(cfg.cooling.get("plugs", []))
-        for err in errors:
-            print(f"zionstats: plug config: {err}", file=sys.stderr)
-        cc = config_from_section(cfg.cooling, mode=cfg.cooling.get("mode", "off"))
+        plugs: list[Plug]
+        if is_demo:
+            # --demo must never reach mains hardware: mock plug + dry_run,
+            # same posture as the TUI's demo showcase
+            plugs = [MockPlug("blower (mock)")]
+            cc = config_from_section(cfg.cooling, mode="dry_run")
+            print(
+                "zionstats: demo provider -- cooling runs in dry_run with a "
+                "mock plug (real plugs are never touched in demo)",
+                file=sys.stderr,
+            )
+        else:
+            plugs, errors = build_plugs(cfg.cooling.get("plugs", []))
+            for err in errors:
+                print(f"zionstats: plug config: {err}", file=sys.stderr)
+            cc = config_from_section(cfg.cooling, mode=cfg.cooling.get("mode", "off"))
 
         def _announce(ev) -> None:
             print(f"zionstats blower [{ev.kind}] {ev.msg}", file=sys.stderr, flush=True)

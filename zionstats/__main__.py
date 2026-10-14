@@ -110,7 +110,9 @@ def main(argv: list[str] | None = None) -> int:
             if args.export:
                 from .app import make_exporter
 
-                exporter = make_exporter(args, cfg)
+                exporter, err = make_exporter(args, cfg)
+                if err:
+                    print(f"zionstats: {err}", file=sys.stderr)
             log_loop(provider, args.log, args.interval or cfg.interval, cfg=cfg,
                      exporter=exporter)
             return 0
