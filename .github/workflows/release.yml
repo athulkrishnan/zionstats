@@ -84,19 +84,12 @@ jobs:
           name: python-packages
           path: dist/*
 
-  publish-pypi:
-    needs: [python-packages, version-check]
-    runs-on: ubuntu-latest
-    environment: pypi
-    permissions:
-      id-token: write  # PyPI trusted publishing (OIDC)
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: python-packages
-          path: dist
-      - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+  # PyPI publishing (OIDC trusted publishing) is intentionally NOT wired up:
+  # it requires a one-time trusted-publisher entry on pypi.org. To enable:
+  #   1. configure the publisher at pypi.org -> project -> Publishing
+  #   2. re-add a publish-pypi job here with id-token: write
+  #      using pypa/gh-action-pypi-publish@release/v1
+  # Wheels/sdist remain attached to the GitHub Release by the publish job.
 
   binaries:
     needs: version-check
