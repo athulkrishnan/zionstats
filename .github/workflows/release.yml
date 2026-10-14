@@ -49,7 +49,8 @@ jobs:
           for bin in zionstats zionstatsd zionstats-tui; do
             cp "target/${{ matrix.target }}/release/$bin" release/
           done
-      - name: Smoke
+      - name: Smoke (x86_64 only)
+        if: matrix.target == 'x86_64-unknown-linux-musl'
         run: ./release/zionstatsd --version && ./release/zionstats-tui --version
       - name: Zip
         shell: python
