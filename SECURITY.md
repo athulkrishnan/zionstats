@@ -35,6 +35,25 @@ tinytuya helper files (`tinytuya.json`, `devices.json`, `snapshot.json`,
 `tuya-raw.json`) also contain keys — they are gitignored; keep them that way
 and never commit them.
 
+## Rust daemon (v0.5)
+
+- **Shared memory**: `/dev/shm/zionstats-<uid>`, mode 0600, uid-scoped by
+  construction. Content is telemetry only (no secrets); readers validate an
+  ABI tag and refuse mismatched layouts.
+- **Metrics listener** (default `127.0.0.1:9400`): same exposure rules as
+  the Python exporter -- PIDs/users/cmdlines of GPU processes unless
+  `expose_processes = false`; no auth by design, keep loopback on shared
+  hosts.
+- **Fan PWM** (`[daemon] fan_control`, default **off**): hands GPU fans to
+  manual control. The daemon restores driver control at startup, on
+  SIGTERM, and after watchdog restarts, and falls back to driver control on
+  any actuator error. NVML's own documentation warns that setting fan speeds
+  too low can damage the GPU -- keep `fan_curve` floors sane and treat the
+  curve as safety-critical config.
+- **Two-writer guard**: the daemon takes an advisory flock on its SHM file
+  and refuses to start if another writer (including the Python blower
+  daemon) is active.
+
 ## Reporting a vulnerability
 
 Please use GitHub's **private vulnerability reporting** (Security tab →

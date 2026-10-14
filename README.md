@@ -269,6 +269,40 @@ zionstats --export 127.0.0.1:9835     # or [export] enabled = true in config
   wheel scrolls the list. All menus are click-navigable. Disable with
   `mouse = false`. In tmux, `set -g mouse on` lets clicks through.
 
+## The Rust core: zionstatsd + SHM-backed TUI (v0.5, preview)
+
+v0.5 adds a Rust re-architecture beside the Python TUI (the Python app above
+is unchanged and stays fully supported):
+
+- **`zionstatsd`** -- an always-on systemd daemon (`Type=notify`, watchdog)
+  that polls NVML at up to **4 Hz** (`interval = 0.25`), publishes a
+  zero-copy **shared-memory** frame (`/dev/shm/zionstats-<uid>`, 0600,
+  seqlock-protected), runs the same fail-safe **blower automation** as the
+  Python daemon (Shelly + Tasmota natively; Tuya stays on
+  `zionstats --log` for now), optionally drives **GPU fan PWM** through
+  NVML (opt-in: `[daemon] fan_control = true`; the daemon probes writability,
+  restores driver control at startup and on exit, and nvml's own warning
+  applies: setting fan speeds too low can burn the GPU), and serves
+  **Prometheus metrics + JSON snapshot on :9400** with the same
+  `zionstats_gpu_*` families as the Python exporter plus DCGM-style labels.
+- **`zionstats-tui`** -- an ephemeral terminal UI that attaches to the
+  daemon's shared memory and never touches NVML itself: instant start,
+  LIVE/STALE/DAEMON-DOWN badges, GPU cards with sparklines, process table
+  (with docker/k8s pod attribution resolved by the daemon), alerts strip.
+
+```bash
+cargo build --release --workspace
+sudo ./packaging/install.sh            # bins + systemd unit + /etc/zionstats
+sudo systemctl enable --now zionstatsd
+zionstats-tui                          # attach (or: zionstats)
+curl 127.0.0.1:9400/metrics            # Prometheus
+```
+
+Try it without installing or a GPU: `zionstatsd --demo` then `zionstats-tui`.
+The daemon refuses to start twice (flock) so it can never fight the Python
+`zionstats --log` blower controller over the same plug. GPU fan control and
+plug automation ship **off**; `--readonly` builds no actuators at all.
+
 ## Install
 
 ```bash

@@ -23,6 +23,49 @@ jobs:
             exit 1
           fi
 
+  rust-binaries:
+    needs: version-check
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: x86_64-unknown-linux-musl, os: ubuntu-latest, name: linux_amd64 }
+          - { target: aarch64-unknown-linux-musl, os: ubuntu-latest, name: linux_arm64 }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+      - name: Install musl tools
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - name: Build static binaries
+        run: |
+          cargo build --release --target ${{ matrix.target }} -p zionstats-daemon -p zionstats-tui -p zionstats
+          mkdir -p release
+          for bin in zionstats zionstatsd zionstats-tui; do
+            cp "target/${{ matrix.target }}/release/$bin" release/
+          done
+      - name: Smoke
+        run: ./release/zionstatsd --version && ./release/zionstats-tui --version
+      - name: Zip
+        shell: python
+        run: |
+          import os, zipfile
+          version = os.environ["GITHUB_REF_NAME"].lstrip("v")
+          target = "${{ matrix.name }}"
+          with zipfile.ZipFile(f"release/zionstats_{version}_{target}_rust.zip", "w",
+                               zipfile.ZIP_DEFLATED) as z:
+              for bin in ("zionstats", "zionstatsd", "zionstats-tui"):
+                  z.write(f"release/{bin}", bin)
+              for f in ("README.md", "LICENSE", "NOTICE", "CHANGELOG.md"):
+                  z.write(f, f)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rust-${{ matrix.name }}
+          path: release/*
+
   python-packages:
     needs: version-check
     runs-on: ubuntu-latest
@@ -114,7 +157,7 @@ jobs:
       - name: Collect release files
         run: |
           mkdir -p release
-          find artifacts -type f | while read f; do cp "$f" release/; done
+          find artifacts -type f | while read f; do cp "$f" release/ 2>/dev/null || true; done
           cd release
           sha256sum * > checksums.txt
           ls -la

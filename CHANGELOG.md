@@ -1,5 +1,39 @@
 # Changelog
 
+## v0.5.0 -- Rust core: zionstatsd daemon + SHM TUI (2026-10-14)
+
+### Added
+- **Rust Cargo workspace** (`crates/`): zionstats-core (types, seqlock SHM
+  layout, hysteresis controller, sources, metrics), zionstats-daemon
+  (`zionstatsd`), zionstats-tui, and a unified `zionstats` CLI.
+- **zionstatsd**: always-on systemd daemon (Type=notify + watchdog), NVML
+  polling to 4 Hz (`--interval 0.25`), zero-copy shared memory in
+  `/dev/shm/zionstats-<uid>` (0600, seqlock + ABI tag), flock two-writer
+  guard, SIGTERM restoring driver fan control, graceful plug shutdown
+  policy.
+- **Thermal controller (Rust port)**: the Python fail-safe state machine
+  (82/78 hysteresis, usage trigger, min on/off, duty cap, stale force-off,
+  readback verify x3) ported 1:1 with its 23-case table tests; smart plugs
+  Shelly (Gen1/Gen2) + Tasmota native; Tuya deferred to the Python daemon.
+- **GPU fan PWM (opt-in)**: `[daemon] fan_control` with a configurable fan
+  curve, anti-chatter band, capability probing, startup/exit driver-default
+  restore (nvml warns: too-low fan speeds can burn the GPU).
+- **Container/K8s attribution**: /proc cgroup v1+v2 parsing resolving GPU
+  PIDs to docker/containerd/cri-o/podman container IDs and k8s pod names
+  (PID-reuse-safe LRU, fuzz-tested, never panics).
+- **Metrics on :9400**: same `zionstats_gpu_*` families as the Python
+  exporter (existing Grafana board keeps working) + DCGM-style labels +
+  fan/control/daemon gauges; OpenMetrics negotiation; /snapshot JSON.
+- **zionstats-tui**: instant-attach SHM terminal UI (never inits NVML):
+  LIVE/STALE/DAEMON-DOWN badges, GPU cards + sparklines, process table,
+  alerts, pause/rate keys; launch/refresh benchmark flags.
+- CI: cargo fmt/clippy/test/deny jobs; release: musl static amd64/arm64
+  binaries; packaging/systemd/zionstatsd.service + packaging/install.sh.
+
+### Notes
+- The Python TUI/daemon are unchanged and remain fully supported; feature
+  parity (themes, record/replay, climate layer) is tracked for v0.6.
+
 ## v0.4.0 -- process forensics, btop UX, built-in exporter (2026-10-13)
 
 ### Added
