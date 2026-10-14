@@ -3,5 +3,5 @@
 Inspired by nvitop (XuehaiPan) and the design language of btop (aristocratos).
 """
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 __author__ = "Athul Krishnan"

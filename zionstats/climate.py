@@ -1,6 +1,6 @@
 """Climate layer: keyless global weather (Open-Meteo), derived heat metrics,
 and cooling-effectiveness insight.  Works anywhere on Earth; the shipped
-default is Singapore -- a hot, humid, tropical example. Set your own.
+defaults are neutral -- set your location via --location or [weather] lat/lon.
 
 All network use is optional and cached: a fetch failure degrades to the last
 cached observation with an age badge, never to a crash.
@@ -214,8 +214,8 @@ class DemoWeather(WeatherProvider):
     """Tropical diurnal curve for --demo: 27-33C, 85-92% RH,
     afternoon drizzle bursts.  No network."""
 
-    def __init__(self, lat: float = 1.3521, lon: float = 103.8198,
-                 label: str = "Singapore (demo)", refresh_min: float = 20.0) -> None:
+    def __init__(self, lat: float = 0.0, lon: float = 0.0,
+                 label: str = "demo location", refresh_min: float = 20.0) -> None:
         super().__init__(lat, lon, label, refresh_min, cache_path=Path("/dev/null"))
         self._t0 = time.time()
 

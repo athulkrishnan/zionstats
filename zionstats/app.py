@@ -150,7 +150,7 @@ class App:
             if self.is_demo:
                 from .climate import DemoWeather
 
-                self.weather = DemoWeather(wcfg.get("lat", 11.15), wcfg.get("lon", 75.83),
+                self.weather = DemoWeather(wcfg.get("lat", 0.0), wcfg.get("lon", 0.0),
                                            wcfg.get("label", "") + " (demo)")
             else:
                 from .climate import WeatherProvider

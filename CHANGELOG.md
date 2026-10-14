@@ -30,6 +30,19 @@
 - CI: cargo fmt/clippy/test/deny jobs; release: musl static amd64/arm64
   binaries; packaging/systemd/zionstatsd.service + packaging/install.sh.
 
+### Changed
+- **Privacy**: the shipped weather-example coordinates were a real city;
+  defaults are now neutral (0, 0, no label) -- set yours via
+  `--location LAT,LON[,LABEL]` or `[weather] lat/lon`. Test fixtures and
+  demo defaults scrubbed to match.
+
+### Fixed
+- `zionstats --log --export` crashed on an internal tuple unpack (v0.4.0
+  regression).
+- **Safety**: `zionstats --log --demo` built real plugs from config, so the
+  usage trigger could actuate mains hardware on synthetic data. Demo now
+  forces a mock plug in dry_run, mirroring the TUI posture.
+
 ### Notes
 - The Python TUI/daemon are unchanged and remain fully supported; feature
   parity (themes, record/replay, climate layer) is tracked for v0.6.

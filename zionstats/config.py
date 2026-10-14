@@ -39,9 +39,9 @@ DEFAULTS = {
 
 WEATHER_DEFAULTS = {
     "enabled": True,
-    "lat": 1.3521,          # Singapore -- hot, humid, tropical; set yours
-    "lon": 103.8198,
-    "label": "Singapore, SG",
+    "lat": 0.0,             # set your location: --location LAT,LON[,LABEL] or here
+    "lon": 0.0,
+    "label": "",
     "refresh_min": 20.0,
 }
 

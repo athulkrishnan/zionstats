@@ -61,14 +61,14 @@ def test_cache_roundtrip(tmp_path):
     import time as _t
 
     cp = Path(tmp_path) / "weather.json"
-    prov = WeatherProvider(1.3521, 103.8198, "Singapore", cache_path=cp)
-    w = Weather(ts=_t.time(), lat=1.3521, lon=103.8198, label="Singapore",
+    prov = WeatherProvider(0.0, 0.0, "Testville", cache_path=cp)
+    w = Weather(ts=_t.time(), lat=0.0, lon=0.0, label="Testville",
                 temp_c=29.3, rh=76.0, dew_c=25.0, apparent_c=33.0,
                 precip_mm=0.1, code=51, wind_kmh=7.0, is_day=False,
                 hourly=[(0.0, 29.0)])
     prov.last = w
     prov._write_cache(w)
-    prov2 = WeatherProvider(1.3521, 103.8198, "Singapore", cache_path=cp)
+    prov2 = WeatherProvider(0.0, 0.0, "Testville", cache_path=cp)
     got = prov2._read_cache()
     assert got is not None and abs(got.temp_c - 29.3) < 1e-6
     assert got.rh == 76.0 and got.code == 51
