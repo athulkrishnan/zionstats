@@ -22,18 +22,8 @@ live verdict chip (`COMPUTE-BOUND`, `POWER-LIMITED`, `THERMALLY-LIMITED`,
 One dependency (`nvidia-ml-py`). Stdlib curses renderer with a diff-flush
 cell buffer, so it stays crisp over SSH, in tmux splits, and in iTerm2.
 
-```
-gpu-rig   driver 580.159.03  CUDA<=13.0  [nvml]                          1.0s 19:06:50
- ΣPWR 80W/635W  ΣMEM 19.1/96.0GiB (20%)  load 0.15 0.18 0.18  ...        GPU 0 · predawn
-╭─ GPU 0 ─ RTX 4070 Ti SUPER ─────────────────────P8 · Ada─╮
-│ 8.9 · Default · E 0.2Wh · peak 37W · idle 35W            │
-│ GPU UTIL %              MEM UTIL %                       │
-│   ⣀⣠⣤⣶⣿ (gradient braille graphs)                        │
-│ PWR ▕██████▂──────▏ 36/285W  TMP ▕████▄──┃────▏ 36C/98C  │
-│ SM 253/2850MHz · MEM 10951MHz · PCIe Gen4 x16 ↓0.0 ↑0.0  │
-│  IDLE                                                    │
-╰──────────────────────────────────────────────────────────╯
-```
+<img alt="zionstats" src="https://raw.githubusercontent.com/athulkrishnan/zionstats/refs/heads/main/Screenshot.png">
+
 
 > Screenshots and an asciinema cast are on the todo list — until then,
 > `zionstats --demo` is a 5-second way to see all of it live (no GPU
