@@ -24,11 +24,6 @@ cell buffer, so it stays crisp over SSH, in tmux splits, and in iTerm2.
 
 <img alt="zionstats" src="https://raw.githubusercontent.com/athulkrishnan/zionstats/refs/heads/main/Screenshot.png">
 
-
-> Screenshots and an asciinema cast are on the todo list — until then,
-> `zionstats --demo` is a 5-second way to see all of it live (no GPU
-> required), including the tree view, detail screen, and menus.
-
 ## Highlights
 
 - **Process forensics** (v0.4.0) -- selectable, scrollable process table;
