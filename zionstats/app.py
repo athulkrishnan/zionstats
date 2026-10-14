@@ -868,7 +868,9 @@ class App:
             elif c in ("T", "K"):
                 import signal as _signal
 
-                self._request_signal(_signal.SIGTERM if c == "T" else _signal.SIGKILL)
+                self._request_signal(
+                    _signal.SIGTERM if c == "T"
+                    else getattr(_signal, "SIGKILL", _signal.SIGTERM))
             elif c == "O":
                 self.options_ui = {"cursor": 0}
             elif c == "x":

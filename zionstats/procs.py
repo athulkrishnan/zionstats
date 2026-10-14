@@ -179,7 +179,8 @@ def signal_process(pid: int, sig: int) -> None:
 
 SIGNAL_NAME: dict[int, str] = {
     int(signal.SIGTERM): "SIGTERM",
-    int(signal.SIGKILL): "SIGKILL",
+    # Windows has no SIGKILL; TerminateProcess semantics come from os.kill
+    int(getattr(signal, "SIGKILL", 9)): "SIGKILL",
 }
 
 
