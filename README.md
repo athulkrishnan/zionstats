@@ -271,6 +271,12 @@ zionstats --export 127.0.0.1:9835     # or [export] enabled = true in config
 
 ## The Rust core: zionstatsd + SHM-backed TUI (v0.5, preview)
 
+> The Rust workspace now lives canonically at
+> [zionstats-rs](https://github.com/athulkrishnan/zionstats-rs) (v0.6+:
+> one-command demo, calibrated 4 Hz TUI, `--check-config`, completions,
+> criterion benches, published benchmarks). `crates/` here is a frozen
+> v0.5 mirror kept for this repo's CI.
+
 v0.5 adds a Rust re-architecture beside the Python TUI (the Python app above
 is unchanged and stays fully supported):
 
