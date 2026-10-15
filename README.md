@@ -10,7 +10,7 @@ eating your VRAM (Ollama, llama.cpp, vLLM), what inference does to your
 thermals and power, and automatic cooling when it matters. Dense, colorful,
 insight-first.
 
-![zionstats monitoring an Ollama llama-server workload](assets/zionstats-ollama.gif)
+![zionstats monitoring an Ollama llama-server workload](assets/demo.gif)
 
 **Monitoring a local LLM right now?** Start
 [here](docs/MONITORING-OLLAMA.md) -- per-process VRAM and SM% for
