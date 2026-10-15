@@ -305,7 +305,109 @@ def test_mode_change_resets_idle():
     assert "off in 10:00" in st.reason                  # idle clock restarted
 
 
-if __name__ == "__main__":
+
+
+def test_on_none_readback_fails_after_retries():
+    """ON with None readback (unreachable plug returning error dicts):
+    must NOT silently commit state.on=True -- that is the silent
+    no-cooling failure.  OFF keeps the old None-as-success semantics."""
+    plug, ctl, clock, weather, sample = make(temp=85.0)
+    ctl.cfg.mode = "auto"
+
+    class NoReadbackPlug:
+        """Simulates a Tuya plug whose status() always returns None
+        (error dict payload) but whose relay does fire."""
+        def __init__(self):
+            self.relay = False
+            self.commands = []
+        def on(self):
+            self.commands.append("on"); self.relay = True
+        def off(self):
+            self.commands.append("off"); self.relay = False
+        def status(self):
+            return None  # unreachable / error dict -> None
+
+    noread = NoReadbackPlug()
+    ctl.plugs = [noread]
+    ctl.evaluate(replace(sample, util_gpu=40.0), weather)
+    # the runner's _apply retried 3x; None ON readback must not commit
+    assert ctl.state.on is False, "unverified ON must not commit"
+    assert ctl.state.plug_ok is False
+    assert len(noread.commands) == 3, "3 retry attempts"
+    # physically the relay DID fire (tinytuya succeeded) but we do not
+    # trust it without readback -- the fail alert is the honest outcome
+
+
+def test_external_off_resync_and_refire():
+    """External OFF (Tuya app) while under load: reconcile resyncs belief,
+    next evaluate re-fires ON bypassing min-off."""
+    plug, ctl, clock, weather, sample = make(temp=85.0)
+    ctl.cfg.mode = "auto"
+    ctl.cfg.trigger = "usage"
+    ctl.evaluate(replace(sample, util_gpu=40.0), weather)
+    assert ctl.state.on is True and plug.state is True
+    # user flips the plug off in the Tuya app (physical reality changes)
+    plug.state = False
+    # controller readback sees the external OFF and resyncs belief
+    ctl.reconcile(False, now=clock["t"])
+    assert ctl.state.on is False, "belief must resync to physical OFF"
+    events = [e.kind for e in ctl.events]
+    assert "resync" in events or any("resynced" in e.msg for e in ctl.events)
+    # next evaluate under load: want=True again -> immediate re-fire ON,
+    # bypassing min-off (relay was changed externally, not by us)
+    ctl.evaluate(replace(sample, util_gpu=40.0), weather)
+    assert ctl.state.on is True, "usage trigger must re-engage after external resync"
+    assert plug.state is True
+
+
+def test_external_on_resync_when_controller_believes_off():
+    """External ON while controller believes OFF: resync True, no double
+    command (readback already matches)."""
+    plug, ctl, clock, weather, sample = make(temp=60.0)
+    ctl.cfg.mode = "auto"
+    ctl.cfg.trigger = "usage"
+    plug.state = True           # externally turned on (e.g. voice assistant)
+    ctl.reconcile(True, now=clock["t"])
+    assert ctl.state.on is True, "belief must resync to physical ON"
+    # usage trigger with resynced belief: holds ON without re-actuating
+    ctl.evaluate(replace(sample, util_gpu=40.0), weather)
+    assert ctl.state.on is True
+
+
+def test_reconcile_skipped_for_none_readback():
+    """Plugs with no readback support (None): reconcile is a no-op."""
+    plug, ctl, clock, weather, sample = make(temp=85.0)
+    ctl.cfg.mode = "auto"
+    ctl.evaluate(replace(sample, util_gpu=40.0), weather)
+    assert ctl.state.on is True
+    ctl.reconcile(None, now=clock["t"])
+    assert ctl.state.on is True, "None readback must not touch belief"
+
+
+def test_reconcile_skipped_in_off_mode():
+    """mode=off: reconcile never resurrects the plug."""
+    plug, ctl, clock, weather, sample = make(temp=85.0)
+    ctl.cfg.mode = "auto"
+    ctl.evaluate(replace(sample, util_gpu=40.0), weather)
+    ctl.set_mode("off")
+    assert ctl.state.on is False
+    plug.state = True            # externally flipped on
+    ctl.reconcile(True, now=clock["t"])
+    assert ctl.state.on is False, "mode=off must not adopt external ON"
+
+
+def test_zero_plug_controller_never_commits_on():
+    """A controller with no plugs (failed config) must not commit
+    state.on=True -- the vacuous ok_all bug."""
+    plug, ctl, clock, weather, sample = make(temp=85.0)
+    ctl.cfg.mode = "auto"
+    ctl.cfg.trigger = "usage"
+    ctl.plugs = []               # simulate all plugs failing to build
+    ctl.evaluate(replace(sample, util_gpu=40.0), weather)
+    assert ctl.state.on is False, "zero-plug controller must not commit ON"
+
+
+if __name__ == '__main__':
     test_off_mode_never_actuates()
     test_trigger_and_hysteresis()
     test_min_delta_blocks_useless_blowing()
@@ -317,6 +419,12 @@ if __name__ == "__main__":
     test_manual_immediate_and_failsafe()
     test_retry_then_fail_alert()
     test_readback_mismatch_retries()
+    test_on_none_readback_fails_after_retries()
+    test_external_off_resync_and_refire()
+    test_external_on_resync_when_controller_believes_off()
+    test_reconcile_skipped_for_none_readback()
+    test_reconcile_skipped_in_off_mode()
+    test_zero_plug_controller_never_commits_on()
     test_ambient_fallback_without_weather()
     test_usage_turns_on_at_threshold()
     test_usage_below_threshold_stays_off()

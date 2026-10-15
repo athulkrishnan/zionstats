@@ -258,6 +258,24 @@ class App:
         if self.controller is not None:
             hot = self._hottest_sample()
             if hot is not None:
+                # periodic external-readback reconciliation: query the plug
+                # every readback_period_s so an app-side toggle resyncs
+                # within one window instead of persisting for the load
+                now_ts = time.time()
+                period = max(10.0, self.controller.cfg.readback_period_s)
+                if now_ts - getattr(self, "_last_readback", 0.0) >= period:
+                    self._last_readback = now_ts
+                    statuses = []
+                    for plug in self.controller.plugs:
+                        try:
+                            statuses.append(plug.status())
+                        except Exception:
+                            statuses.append(None)
+                    definitive = None
+                    real = [x for x in statuses if x is not None]
+                    if statuses and len(real) == len(statuses):
+                        definitive = all(real)
+                    self.controller.reconcile(definitive, now_ts)
                 self.controller.evaluate(hot, self.weather_now)
         if self.recorder is not None:
             self.recorder.write(

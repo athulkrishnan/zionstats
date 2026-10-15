@@ -41,6 +41,8 @@ class CoolingConfig:
     max_weather_age_s: float = 45 * 60.0
     verify_delay_s: float = 0.4
     ambient_temp_fallback_c: float = 30.0  # used when weather is unavailable
+    readback_period_s: float = 30.0        # periodic plug readback cadence
+
 
 
 @dataclass
@@ -56,12 +58,13 @@ class CoolingState:
     inhibited: str = ""
     idle_since: float | None = None   # start of the current continuous-idle stretch
     util_pct: float | None = None     # last seen GPU util, for UI/debug
+    external_resync: bool = False     # plug state changed outside the controller
 
 
 @dataclass
 class CoolingEvent:
     ts: float
-    kind: str  # "on" | "off" | "would-on" | "would-off" | "fail" | "inhibit" | "duty"
+    kind: str  # "on" | "off" | "would-on" | "would-off" | "fail" | "inhibit" | "duty" | "resync"
     msg: str
 
 
@@ -104,6 +107,8 @@ class CoolingController:
         self._desired: bool | None = None
         self._inhibited_alerted = False
         self._fail_alerted = False
+        self._empty_alerted = False
+        self._resync_alerted = False
         self._last_would: bool | None = None
 
     # ------------------------------------------------------------------
@@ -170,9 +175,53 @@ class CoolingController:
             return True, f"idle {self._mmss(idle)}, off in {self._mmss(remaining)}"
         return False, f"idle {self._mmss(idle)} >= {self.cfg.idle_off_s / 60:.0f}min, cool"
 
+    def reconcile(self, plug_status: bool | None, now: float | None = None) -> bool:
+        """Periodic external-readback reconciliation.
+
+        The controller only talks to the plug when it wants a transition;
+        anything that changes the relay outside this process (vendor app,
+        voice assistant, another controller) is otherwise invisible until
+        the next wanted transition -- which may be minutes away while the
+        load keeps running.  Call this every `readback_period_s` with the
+        definitive plug readback:
+
+        - None            -> plug has no readback support; skipped
+        - matches belief  -> nothing happens
+        - mismatches      -> belief resynced + "resync" event + one-time
+                             alert; the next evaluate() re-fires the plug
+                             to the mode's intent, bypassing min-on/off
+                             (the relay was changed externally, so our
+                             anti-chatter windows do not apply)
+        """
+        now = now if now is not None else self._clock()
+        if plug_status is None or not self.plugs:
+            return False
+        if self.cfg.mode in ("off",):
+            return False
+        if bool(plug_status) == self.state.on:
+            return False
+        # belief mismatch: resync to reality
+        self.state.on = bool(plug_status)
+        self.state.last_change_ts = now
+        self.state.on_since = now if plug_status else None
+        self.state.external_resync = True
+        self.state.plug_ok = True
+        self.state.plug_ok = True
+        direction = "on" if plug_status else "off"
+        self._emit("resync",
+                   f"plug state resynced externally: relay {direction}, "
+                   f"controller belief updated")
+        return True
+
     def _apply(self, desired: bool, reason: str) -> None:
         """Actuate with readback verification + retry; alert on failure."""
         now = self._clock()
+        if not self.plugs:
+            # never commit actuation state without hardware behind it
+            if not self._empty_alerted:
+                self._emit("fail", "no plugs configured -- cannot actuate")
+                self._empty_alerted = True
+            return
         ok_all = True
         for plug in self.plugs:
             ok = False
@@ -181,7 +230,14 @@ class CoolingController:
                     (plug.on if desired else plug.off)()
                     self._sleep(self.cfg.verify_delay_s)
                     st = plug.status()
+                    # None readback: trust for OFF (failsafe direction --
+                    # retrying an unreachable plug cannot force it off),
+                    # not for ON (an unverified ON is exactly the silent
+                    # no-cooling failure this controller exists to prevent)
                     if st is None or bool(st) == desired:
+                        if desired and st is None:
+                            # keep retrying ON: a definite readback matters
+                            continue
                         ok = True
                         break
                 except PlugError:
@@ -289,8 +345,14 @@ class CoolingController:
                 self._apply(want, why or "manual toggle")
             return st
 
-        # timing constraints for actuation
+        # timing constraints for actuation; an external resync bypasses
+        # the min-on/off windows (the relay was changed outside this
+        # process -- our anti-chatter protection does not apply to it)
         if want != st.on:
+            if getattr(st, "external_resync", False):
+                st.external_resync = False
+                self._apply(want, why + " [external resync]")
+                return st
             now_ts = now
             since = st.last_change_ts
             if st.on and now_ts - since < self.cfg.min_on_s:

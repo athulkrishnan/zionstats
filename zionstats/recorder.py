@@ -160,6 +160,7 @@ def log_loop(provider, path: str, interval: float, cfg=None, exporter=None) -> N
 
         ctl = CoolingController(plugs, cc, on_event=_announce)
     print(f"zionstats: logging to {path} every {interval:.1f}s -- Ctrl-C to stop", file=sys.stderr)
+    last_readback = 0.0
     try:
         while True:
             t0 = time.time()
@@ -173,6 +174,23 @@ def log_loop(provider, path: str, interval: float, cfg=None, exporter=None) -> N
                         hot = s
                 if hot is not None:
                     ctl.evaluate(hot, None)  # no weather headless; usage trigger ignores it
+                # periodic external-readback reconciliation (same cadence
+                # and semantics as the TUI tick)
+                now_ts = time.time()
+                period = max(10.0, getattr(ctl.cfg, "readback_period_s", 30.0))
+                if now_ts - last_readback >= period:
+                    last_readback = now_ts
+                    statuses = []
+                    for plug in ctl.plugs:
+                        try:
+                            statuses.append(plug.status())
+                        except Exception:
+                            statuses.append(None)
+                    definitive = None
+                    real = [x for x in statuses if x is not None]
+                    if statuses and len(real) == len(statuses):
+                        definitive = all(real)
+                    ctl.reconcile(definitive, now_ts)
             if exporter is not None:
                 exporter.publish(env, samples, procs, {})
             time.sleep(max(0.0, interval - (time.time() - t0)))

@@ -292,6 +292,8 @@ def build_plug(cfg: dict) -> Plug:
         return factory(cfg)
     except KeyError as e:
         raise PlugError(f"plug {cfg.get('name', '?')}: missing config field {e}") from e
+    except RuntimeError as e:
+        raise PlugError(f"plug {cfg.get('name', '?')}: {e}") from e
 
 
 def build_plugs(cfgs: list[dict]) -> tuple[list[Plug], list[str]]:
