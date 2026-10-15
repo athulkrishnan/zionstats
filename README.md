@@ -5,9 +5,19 @@
 [![Graph engine](https://img.shields.io/badge/graphs-btop--style%20quadrant%20gradients-8bb04f.svg)](#why-graphs-look-like-btop)
 [![Python](https://img.shields.io/badge/python-3.9%2B-blue.svg)](pyproject.toml)
 
-A btop-grade NVIDIA GPU observatory. Dense, colorful, insight-first.
+A btop-grade GPU monitor **built for the local-LLM rig**: which process is
+eating your VRAM (Ollama, llama.cpp, vLLM), what inference does to your
+thermals and power, and automatic cooling when it matters. Dense, colorful,
+insight-first.
 
-**v0.4.0 — Process forensics + btop-grade UX + built-in Prometheus exporter**:
+![zionstats monitoring an Ollama llama-server workload](assets/zionstats-ollama.gif)
+
+**Monitoring a local LLM right now?** Start
+[here](docs/MONITORING-OLLAMA.md) -- per-process VRAM and SM% for
+llama-server/vLLM, what the verdict chips mean during inference, and the
+Prometheus/Grafana fleet view.
+
+**v0.5.0 — Process forensics + btop-grade UX + built-in Prometheus exporter**:
 a selectable/tree/detail process explorer with safe signal delivery, full
 mouse support, an in-TUI options menu, layout presets, and a stdlib-only
 Prometheus endpoint with a ready-made Grafana dashboard.
@@ -35,6 +45,9 @@ cell buffer, so it stays crisp over SSH, in tmux splits, and in iTerm2.
   rows, menus; wheel scrolls), in-TUI options menu with live-apply +
   persistence, panel toggles, named layout presets with one-key hotkeys,
   auto-scaling graphs.
+- **Built for local LLMs** -- [Monitoring Ollama guide](docs/MONITORING-OLLAMA.md):
+  what each metric means during inference, per-process VRAM for
+  llama-server/vLLM, fleet Grafana.
 - **Built-in Prometheus exporter + Grafana dashboard** (v0.4.0) --
   `--export [HOST:]PORT` serves `/metrics` and `/snapshot` from the same
   process (stdlib only, no prometheus_client); ships a ready-made Grafana
@@ -180,7 +193,9 @@ plug that pairs with a Tuya app should behave the same way.
 
 ## Process forensics (v0.4)
 
-The process table is now a full explorer. UI concepts follow nvitop; the
+The process table is a full explorer -- and for LLM work it resolves
+`llama-server`, `vllm`, and `llama-cli` to their actual VRAM, SM%
+utilization and command lines. UI concepts follow nvitop; the
 implementation is original (see Credits).
 
 ```
@@ -207,7 +222,8 @@ s                cycle sort        K      SIGKILL (type "yes")
 
 ## Prometheus exporter + Grafana (v0.4)
 
-One flag turns the monitor into a scrape target — no second process, no
+Monitoring a local-LLM box headless? This is the fleet view. One flag
+turns the monitor into a scrape target — no second process, no
 extra package (the idea is credited to nvitop-exporter; the implementation
 is stdlib `http.server`):
 
