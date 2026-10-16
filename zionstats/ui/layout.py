@@ -462,11 +462,11 @@ def _draw_detail_meters(scr: Screen, app, x: int, y: int, w: int, h: int, idx: i
     ins = app.insights.get(idx)
     bw = max(10, min(26, w - 34))
     rows = []
+    tmax = s.temp_shutdown or s.temp_slowdown or 100
 
     def meter(label, frac, grad, value, vcolor="fg", ticks=None):
         rows.append((label, max(0.0, min(1.0, frac)), grad, ticks or [], value, vcolor))
 
-    tmax = s.temp_shutdown or s.temp_slowdown or 100
     if s.temp_gpu is not None:
         ticks = []
         if s.temp_slowdown:
@@ -771,3 +771,157 @@ def draw_keyhints(scr: Screen, app, y: int, W: int) -> None:
     keyhints(scr, y, hints, th, W,
              on_zone=lambda x, yy, ww, hh, k: app._add_zone(x, yy, ww, hh, "key", k)
              if len(k) == 1 else None)
+
+
+# ------------------------------------------------------- bars + graphs
+
+def draw_bars_mode(scr: Screen, app, x: int, y: int, w: int, h: int, idx: int) -> None:
+    """btop-style horizontal bars for all GPU metrics -- compact, data-rich,
+    at-a-glance.  Every metric gets a gradient-filled bar with its value
+    printed at the end.  Session stats and throttle info at the bottom."""
+    th: Theme = app.theme
+    bg = th.q("bg")
+    s = app.samples.get(idx)
+    ins = app.insights.get(idx)
+    if s is None:
+        return
+
+    panel_frame(scr, x, y, w, h, f" BARS ─ GPU {idx} ", th, False)
+
+    def bar(label, frac, text, r, color_key="grad", tick_marks=None):
+        """Gradient horizontal bar with label and value."""
+        lw = 14
+        scr.puts(x + 3, r, label.rjust(lw), th.q("table_head"), bg)
+        bar_w = max(10, w - lw - 16)
+        bx = x + 3 + lw
+        frac = max(0.0, min(1.0, frac))
+        filled = int(frac * bar_w)
+        color = th.q(color_key) if color_key else th.q("fg")
+        for i in range(bar_w):
+            if i < filled:
+                scr.put(bx + i, r, "━", color, bg)
+            else:
+                scr.put(bx + i, r, "─", th.q("dim"), bg)
+        scr.puts(bx + bar_w + 1, r, text, th.q("fg"), bg)
+
+    r = y + 2
+    def line(text, color="fg", bold=False):
+        nonlocal r
+        scr.puts(x + 3, r, text, th.q(color) if not bold else th.q(color) | 0, bg,
+                 bold=bold)
+        r += 1
+
+    # -- bars
+    bar("GPU Util", (s.util_gpu or 0) / 100.0,
+        f"{s.util_gpu or 0:.0f}%", r, "grad")
+    r += 1
+    bar("Mem Util", (s.util_mem or 0) / 100.0,
+        f"{s.util_mem or 0:.0f}%", r, "grad_mem")
+    r += 1
+    vram_frac = s.mem_used / s.mem_total if s.mem_total else 0
+    vram_str = f"{s.mem_used / 2**30:.1f}/{s.mem_total / 2**30:.1f} GiB"
+    bar("VRAM", vram_frac,
+        vram_str, r, "grad_mem")
+    r += 1
+    if s.power_limit_w:
+        bar("Power", (s.power_w or 0) / s.power_limit_w,
+        f"{s.power_w or 0:.0f}/{s.power_limit_w:.0f}W", r, "grad_power")
+    r += 1
+    t_style = "crit" if (s.temp_gpu or 0) >= 83 else ("warn" if (s.temp_gpu or 0) >= 70 else "ok")
+    bar("Temp", (s.temp_gpu or 0) / 100.0,
+        fmt_temp(s.temp_gpu, app.fahrenheit), r, t_style)
+    r += 1
+    sm_max = s.clocks_max_sm_mhz or 1
+    bar("SM Clock", (s.clocks_sm_mhz or 0) / max(1,
+        sm_max),
+        f"{s.clocks_sm_mhz or 0} MHz", r, "grad")
+    r += 1
+    if s.fan_pct is not None:
+        bar("Fan", s.fan_pct / 100.0,
+        f"{s.fan_pct:.0f}%", r, "grad")
+    r += 1
+    r += 1  # spacing
+
+    # -- session info
+    if ins:
+        line(f"  Session: {ins.session_wh:.2f} Wh · Avg {ins.avg_w or 0:.0f}W · "
+             f"Peak {ins.peak_w or 0:.0f}W · Throttle: {', '.join(s.throttle) or 'none'}")
+        line(f"  PCIe: Gen{s.pcie_gen_cur or '?'}/x{s.pcie_width_cur or '?'} · "
+             f"Energy: {ins.session_wh:.2f} Wh")
+        r += 1
+
+    # -- throttle chips
+    if s.throttle:
+        for reason in s.throttle:
+            color = "crit" if "HW" in reason else ("warn" if reason == "SW-Thermal" else "dim")
+            line(f"  ⚠ {reason}", color)
+
+
+def draw_graphs_mode(scr: Screen, app, x: int, y: int, w: int, h: int, idx: int) -> None:
+    """Full-height multi-row braille graphs -- oscilloscope-style, maximum
+    detail.  Each metric gets its own labeled graph row with gradient
+    coloring and threshold lines."""
+    th: Theme = app.theme
+    bg = th.q("bg")
+    s = app.samples.get(idx)
+    if s is None:
+        return
+    hist = app.hist.get(idx, {})
+    ins = app.insights.get(idx)
+
+    panel_frame(scr, x, y, w, h, f" GRAPHS ─ GPU {idx} ", th, False)
+
+    r = y + 2
+    graph_h = 4  # braille rows per graph
+    label_x = x + 3
+    graph_x = x + 3
+    graph_w = w - 6
+
+    def graph_row(label, data, vmax, color_key, unit, threshold_hlines=None):
+        nonlocal r
+        if r + graph_h > y + h - 1:
+            return
+        scr.puts(label_x, r, label, th.q("table_head"), bg, bold=True)
+        r += 1
+        # braille graph
+        graph(scr, getattr(app, "graph_style", "braille"), graph_x, r,
+              graph_w, graph_h, data, vmax, th, color_key, floor=0.03)
+        # value label at the right edge
+        if data:
+            cur = data[-1]
+            scr.puts(graph_x + graph_w - len(unit) - 12, r - 1,
+                     f"now {cur:.0f}{unit}", th.q("fg"), bg)
+        r += graph_h + 1  # graph rows + separator
+
+    # -- GPU Utilization
+    util_data = list(hist.get("util_gpu", []))
+    graph_row("GPU UTILIZATION", util_data, 100.0, "grad", "%",
+              hlines=[(0.92, th.q("warn"))] if s.throttle_bits else [])
+    r += 1
+
+    # -- Memory Utilization
+    mem_data = list(hist.get("util_mem", []))
+    graph_row("MEMORY BANDWIDTH", mem_data, 100.0, "grad_mem", "%")
+
+    # -- Power
+    pw_data = list(hist.get("power", []))
+    pw_max = s.power_limit_w or max(pw_data) if pw_data else s.power_limit_w or 100
+    graph_row("POWER DRAW", pw_data, pw_max or 100.0, "grad_power", "W",
+              hlines=[(0.92, th.q("warn"))] if s.power_limit_w else [])
+
+    # -- Temperature
+    t_data = [v for _, v in hist.get("temp", [])]
+    t_max = s.temp_shutdown or 100
+    graph_row("TEMPERATURE", t_data, t_max, "grad_temp", "°C",
+              hlines=[(s.temp_slowdown / t_max, th.q("crit"))] if s.temp_slowdown else [])
+
+    # -- verdict strip at the bottom
+    if ins and r < y + h - 1:
+        vc = ins.verdict
+        vcol = {"COMPUTE-BOUND": "ok", "MEMORY-BOUND": "accent2",
+                "POWER-LIMITED": "warn", "THERMALLY-LIMITED": "crit",
+                "IDLE": "dim"}.get(vc, "accent")
+        scr.puts(label_x, y + h - 1, f"  {vc}", th.q(vcol), bg, bold=True)
+        if s.throttle:
+            scr.puts(label_x + len(vc) + 4, y + h - 1,
+                     " · ".join(s.throttle), th.q("warn"), bg)

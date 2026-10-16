@@ -57,6 +57,7 @@ class App:
         self.show_climate = bool(getattr(cfg, "panels_climate", False))
         self.show_alerts = bool(getattr(cfg, "panels_alerts", True))
         self.show_procs = bool(getattr(cfg, "panels_procs", True))
+        self.viz_mode = "detail"  # "detail" | "graphs" | "bars"
         self.paused = False
         self.running = True
 
@@ -667,6 +668,26 @@ class App:
             return
         agg = self._aggregate()
         layout.draw_header(scr, W, self.env, agg, self)
+
+        # ---- bars / graphs fullscreen modes (G / B keys)
+        if self.viz_mode in ("graphs", "bars"):
+            viz_h = H - 5  # header(2) + footer(1) + alerts(1) + padding
+            procs_h = max(6, viz_h // 2)
+            viz_y = 2
+            procs_y = viz_y + viz_h
+            renderer = layout.draw_graphs_mode if self.viz_mode == "graphs" else layout.draw_bars_mode
+            for i, idx in enumerate(self.indices):
+                vx = (i % 2) * (W // 2)
+                vw = W // (min(len(self.indices), 2))
+                renderer(scr, self, vx, viz_y, vw, viz_h, idx)
+            if rects["proc"] and self.show_procs:
+                layout.draw_processes(scr, self, 0, procs_y, W, procs_h)
+            if self.show_alerts and list(self.alerts_engine.alerts):
+                layout.draw_alerts(scr, self, H - 2, W)
+            layout.draw_keyhints(scr, self, H - 1, W)
+            scr.flush()
+            return
+
         rects = layout.plan_layout(W, H, len(self.indices), self.layout_mode,
                                    self.show_detail, climate=self.show_climate,
                                    procs=self.show_procs)
@@ -806,7 +827,12 @@ class App:
             elif c == "m":
                 self._apply_theme(next_theme(self.theme.name), persist=True)
             elif c == "d":
-                self.show_detail = not self.show_detail
+                self.viz_mode = "detail"
+                self.show_detail = True
+            elif c == "G":
+                self.viz_mode = "graphs"
+            elif c == "B":
+                self.viz_mode = "bars"
             elif c == "p":
                 self.paused = not self.paused
                 self._flash("paused" if self.paused else "resumed")
