@@ -813,32 +813,31 @@ def draw_bars_mode(scr: Screen, app, x: int, y: int, w: int, h: int, idx: int) -
 
     # -- bars
     bar("GPU Util", (s.util_gpu or 0) / 100.0,
-        f"{s.util_gpu or 0:.0f}%", r, "grad")
+        f"{s.util_gpu or 0:.0f}%", r, "ok")
     r += 1
     bar("Mem Util", (s.util_mem or 0) / 100.0,
-        f"{s.util_mem or 0:.0f}%", r, "grad_mem")
+        f"{s.util_mem or 0:.0f}%", r, "accent")
     r += 1
     vram_frac = s.mem_used / s.mem_total if s.mem_total else 0
     vram_str = f"{s.mem_used / 2**30:.1f}/{s.mem_total / 2**30:.1f} GiB"
     bar("VRAM", vram_frac,
-        vram_str, r, "grad_mem")
+        vram_str, r, "accent2")
     r += 1
     if s.power_limit_w:
         bar("Power", (s.power_w or 0) / s.power_limit_w,
-        f"{s.power_w or 0:.0f}/{s.power_limit_w:.0f}W", r, "grad_power")
+            f"{s.power_w or 0:.0f}/{s.power_limit_w:.0f}W", r, "warn")
     r += 1
     t_style = "crit" if (s.temp_gpu or 0) >= 83 else ("warn" if (s.temp_gpu or 0) >= 70 else "ok")
     bar("Temp", (s.temp_gpu or 0) / 100.0,
         fmt_temp(s.temp_gpu, app.fahrenheit), r, t_style)
     r += 1
     sm_max = s.clocks_max_sm_mhz or 1
-    bar("SM Clock", (s.clocks_sm_mhz or 0) / max(1,
-        sm_max),
-        f"{s.clocks_sm_mhz or 0} MHz", r, "grad")
+    bar("SM Clock", (s.clocks_sm_mhz or 0) / max(1, sm_max),
+        f"{s.clocks_sm_mhz or 0} MHz", r, "fg")
     r += 1
     if s.fan_pct is not None:
         bar("Fan", s.fan_pct / 100.0,
-        f"{s.fan_pct:.0f}%", r, "grad")
+            f"{s.fan_pct:.0f}%", r, "accent")
     r += 1
     r += 1  # spacing
 
