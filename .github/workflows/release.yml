@@ -5,13 +5,15 @@ on:
     tags: ["v*"]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   version-check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - name: Tag must match pyproject version
         run: |
           TAG_VERSION="${GITHUB_REF_NAME#v}"
@@ -33,11 +35,13 @@ jobs:
           - { target: aarch64-unknown-linux-musl, os: ubuntu-latest, name: linux_arm64 }
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           targets: ${{ matrix.target }}
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
       - name: Install musl tools
         run: sudo apt-get update && sudo apt-get install -y musl-tools gcc-aarch64-linux-gnu
       - name: Build static binaries
@@ -64,7 +68,7 @@ jobs:
                   z.write(f"release/{bin}", bin)
               for f in ("README.md", "LICENSE", "NOTICE", "CHANGELOG.md"):
                   z.write(f, f)
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: rust-${{ matrix.name }}
           path: release/*
@@ -73,13 +77,15 @@ jobs:
     needs: version-check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
       - run: pip install build
       - run: python -m build
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: python-packages
           path: dist/*
@@ -105,8 +111,10 @@ jobs:
           - { os: windows-2022, target: windows_amd64 }
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
       - name: Install build deps
@@ -138,7 +146,7 @@ jobs:
               z.write(exe, os.path.basename(exe))
           for f in ("README.md", "LICENSE", "NOTICE", "CHANGELOG.md"):
               shutil.copy(f, "release/")
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: bin-${{ matrix.target }}
           path: release/*
@@ -147,7 +155,7 @@ jobs:
     needs: [python-packages, binaries]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: artifacts
       - name: Collect release files
@@ -157,7 +165,7 @@ jobs:
           cd release
           sha256sum * > checksums.txt
           ls -la
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           files: |
             release/*.zip
