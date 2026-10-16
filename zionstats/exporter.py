@@ -185,6 +185,13 @@ class _MetricsServer(ThreadingHTTPServer):
 class _MetricsHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     server_version = "zionstats"
+    token: str = ""  # set by Exporter.start()
+
+    def _authorized(self) -> bool:
+        if not self.token:
+            return True
+        auth = self.headers.get("Authorization", "")
+        return auth == f"Bearer {self.token}"
 
     def _send(self, code: int, body: bytes, ctype: str) -> None:
         self.send_response(code)
@@ -194,6 +201,9 @@ class _MetricsHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self) -> None:  # noqa: N802 (stdlib API)
+        if not self._authorized():
+            self._send(401, b"unauthorized\n", "text/plain")
+            return
         payload = getattr(self.server, "payload", None)
         path = self.path.split("?", 1)[0]
         if payload is None:  # never observed in practice: start() seeds a frame
@@ -210,7 +220,7 @@ class _MetricsHandler(BaseHTTPRequestHandler):
                 self._send(404, b"not found\n", "text/plain")
         except Exception as e:  # never kill the thread; report and continue
             try:
-                self._send(500, f"exporter error: {e}\n".encode(), "text/plain")
+                self._send(500, b"exporter error\n", "text/plain")
             except Exception:
                 pass
 
@@ -220,10 +230,11 @@ class _MetricsHandler(BaseHTTPRequestHandler):
 
 class Exporter:
     def __init__(self, host: str, port: int, version: str = "",
-                 expose_processes: bool = True) -> None:
+                 expose_processes: bool = True, token: str = "") -> None:
         self.host = host
         self.port = port
         self._expose_processes = expose_processes
+        self._token = token
         self._version = version
         self._httpd: _MetricsServer | None = None
         self._thread: Thread | None = None
@@ -240,6 +251,7 @@ class Exporter:
                         expose_processes=self._expose_processes,
                         version=self._version),
             )
+            _MetricsHandler.token = self._token
         except OSError:
             return False
         self._thread = Thread(target=self._httpd.serve_forever,

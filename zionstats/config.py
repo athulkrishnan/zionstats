@@ -50,6 +50,7 @@ EXPORT_DEFAULTS = {
     "host": "127.0.0.1",     # do NOT bind 0.0.0.0 on untrusted LANs
     "port": 9835,            # matches nvitop-exporter (Grafana drop-in)
     "expose_processes": True,
+    "token": "",
 }
 
 COOLING_DEFAULTS = {
