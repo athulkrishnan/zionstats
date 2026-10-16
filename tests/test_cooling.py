@@ -321,9 +321,11 @@ def test_on_none_readback_fails_after_retries():
             self.relay = False
             self.commands = []
         def on(self):
-            self.commands.append("on"); self.relay = True
+            self.commands.append("on")
+            self.relay = True
         def off(self):
-            self.commands.append("off"); self.relay = False
+            self.commands.append("off")
+            self.relay = False
         def status(self):
             return None  # unreachable / error dict -> None
 

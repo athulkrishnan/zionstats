@@ -256,6 +256,10 @@ class CoolingController:
             self._fail_alerted = False
         else:
             self.state.plug_ok = False
+            # back off: set last_change_ts so min_on/min_off gates the
+            # retry -- otherwise a dead plug re-fires every tick and
+            # blocks the TUI render loop with 3x50s of network I/O
+            self.state.last_change_ts = now
             if not self._fail_alerted:
                 self._emit("fail", f"blower plug did not confirm {'ON' if desired else 'OFF'} after retries")
                 self._fail_alerted = True

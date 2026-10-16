@@ -93,13 +93,20 @@ class TuyaPlug(Plug):
             raise PlugError("backend 'tuya' needs: pip install tinytuya") from e
         self.name = name
         self._dev = tinytuya.OutletDevice(dev_id, address or "Auto", local_key,
-                                          version=float(version))
+                                          version=float(version),
+                                          connection_timeout=2,
+                                          connection_retry_limit=1,
+                                          connection_retry_delay=0)
 
     def _cmd(self, fn) -> None:
         try:
-            fn()
+            result = fn()
         except Exception as e:
             raise PlugError(f"tuya {self.name}: {e}") from e
+        # tinytuya returns error dicts instead of raising on network
+        # failure -- surface them so the verify/retry loop is real
+        if isinstance(result, dict) and result.get("Error"):
+            raise PlugError(str(result["Error"]))
 
     def on(self) -> None:
         self._cmd(self._dev.turn_on)
@@ -110,13 +117,17 @@ class TuyaPlug(Plug):
     def status(self) -> bool | None:
         try:
             data = self._dev.status()
-            dps = data.get("dps", {}) if isinstance(data, dict) else {}
-            for k in ("1", 1, "20"):
-                if k in dps:
-                    return bool(dps[k])
-            return None
         except Exception:
+            return None  # unreachable -- caller decides policy
+        if not isinstance(data, dict):
             return None
+        if data.get("Error"):
+            return None  # tinytuya error dict -> unreachable
+        dps = data.get("dps", {})
+        for k in ("1", 1, "20"):
+            if k in dps:
+                return bool(dps[k])
+        return None  # no readback DP on this firmware
 
 
 # ---------------------------------------------------------------- kasa
