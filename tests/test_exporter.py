@@ -147,6 +147,57 @@ def test_live_loopback():
     print("  live loopback /metrics /snapshot 404")
 
 
+def test_live_loopback_token_auth():
+    """F3: with [export] token set, /metrics and /snapshot require
+    Authorization: Bearer; wrong/missing header -> 401."""
+    from zionstats.exporter import Exporter
+
+    ex = Exporter("127.0.0.1", 0, version="t", expose_processes=True,
+                  token="s3cret")
+    if not ex.start():
+        print("  (skipped: bind denied)")
+        return
+    try:
+        dp = DemoProvider()
+        ex.publish(dp.environment(), dp.sample(), dp.processes(), {})
+        import urllib.error
+        import urllib.request
+
+        port = ex._httpd.server_address[1]
+        try:
+            urllib.request.urlopen(f"http://127.0.0.1:{port}/metrics", timeout=3)
+            code = 200
+        except urllib.error.HTTPError as e:
+            code = e.code
+        assert code == 401, "missing Authorization header must be 401"
+        try:
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{port}/metrics",
+                headers={"Authorization": "Bearer wrong"})
+            urllib.request.urlopen(req, timeout=3)
+            code = 200
+        except urllib.error.HTTPError as e:
+            code = e.code
+        assert code == 401, "wrong token must be 401"
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{port}/metrics",
+            headers={"Authorization": "Bearer s3cret"})
+        with urllib.request.urlopen(req, timeout=3) as r:
+            body = r.read().decode()
+            assert r.status == 200
+        assert "zionstats_gpu_utilization_percent" in body
+        # snapshot is gated like /metrics
+        try:
+            urllib.request.urlopen(f"http://127.0.0.1:{port}/snapshot", timeout=3)
+            code = 200
+        except urllib.error.HTTPError as e:
+            code = e.code
+        assert code == 401, "snapshot must be gated too"
+    finally:
+        ex.stop()
+    print("  live loopback bearer auth 401/200")
+
+
 if __name__ == "__main__":
     test_golden_full_sample()
     test_none_fields_omit_series_never_nan()
@@ -155,4 +206,5 @@ if __name__ == "__main__":
     test_parse_export_spec()
     test_render_snapshot_shape()
     test_live_loopback()
+    test_live_loopback_token_auth()
     print("exporter: ALL PASS")

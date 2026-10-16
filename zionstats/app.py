@@ -1129,7 +1129,8 @@ def make_exporter(args, cfg: Config):
     except ValueError as e:
         return None, f"exporter: {e}"
     exporter = Exporter(host, port, version=__version__,
-                        expose_processes=bool(ex_cfg.get("expose_processes", True)))
+                        expose_processes=bool(ex_cfg.get("expose_processes", True)),
+                        token=str(ex_cfg.get("token", "") or ""))
     if not exporter.start():
         return None, f"exporter bind failed on {host}:{port}"
     return exporter, None

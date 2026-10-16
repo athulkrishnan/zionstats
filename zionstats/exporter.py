@@ -218,7 +218,7 @@ class _MetricsHandler(BaseHTTPRequestHandler):
                 self._send(200, body, "application/json")
             else:
                 self._send(404, b"not found\n", "text/plain")
-        except Exception as e:  # never kill the thread; report and continue
+        except Exception:  # never kill the thread; report and continue
             try:
                 self._send(500, b"exporter error\n", "text/plain")
             except Exception:

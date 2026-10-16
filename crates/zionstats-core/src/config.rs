@@ -42,6 +42,8 @@ pub struct Config {
     pub cooling: ControlConfig,
     pub plugs: Vec<PlugCfg>,
     pub expose_processes: bool,
+    /// optional Bearer token gating the daemon's /metrics + /snapshot
+    pub export_token: String,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -117,6 +119,7 @@ impl Default for Config {
             cooling: ControlConfig::default(),
             plugs: Vec::new(),
             expose_processes: true,
+            export_token: String::new(),
         }
     }
 }
@@ -245,11 +248,14 @@ pub fn load_verbose(path: &std::path::Path) -> (Config, Vec<String>) {
         }
     }
 
-    // [export] — expose_processes honored; host/port are the PYTHON
+    // [export] — expose_processes + token honored; host/port are the PYTHON
     // exporter's (port 9835); the daemon's socket lives in [daemon]
     if let Some(sec) = data.get("export").and_then(|v| v.as_table()) {
         if let Some(v) = sec.get("expose_processes").and_then(as_bool) {
             cfg.expose_processes = v;
+        }
+        if let Some(v) = sec.get("token").and_then(as_string) {
+            cfg.export_token = v;
         }
     }
 
@@ -408,5 +414,11 @@ mod tests {
         let cfg = load(&write("readonly = \"yes\"\n"));
         assert!(cfg.readonly);
     }
-}
 
+    #[test]
+    fn export_token_parsed() {
+        let cfg = load(&write("[export]\ntoken = \"s3cret\"\n"));
+        assert_eq!(cfg.export_token, "s3cret");
+        assert_eq!(Config::default().export_token, "");
+    }
+}
