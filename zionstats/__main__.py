@@ -352,6 +352,21 @@ def doctor() -> int:
         checks.append(("metrics exporter", True,
                        "disabled (start with --export [HOST:]PORT or [export] enabled)"))
 
+    # ---- config file permissions (F2)
+    cfg_path = _config_mod().config_path(None)
+    import stat as _stat
+    try:
+        mode = os.stat(cfg_path).st_mode
+        if mode & (_stat.S_IRGRP | _stat.S_IROTH):
+            checks.append(("config permissions", False,
+                           f"{cfg_path} is group/other-readable (mode {oct(mode & 0o777)}); "
+                           "it can hold plug credentials -- chmod 600"))
+        else:
+            checks.append(("config permissions", True,
+                           f"{cfg_path} mode {oct(mode & 0o777)}"))
+    except OSError:
+        pass
+
     ok = all(ok for _, ok, _ in checks)
     _print_doctor(checks)
     return 0 if ok else 1
