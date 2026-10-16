@@ -29,7 +29,9 @@ zionstats is a local desktop tool. Its security surface is deliberately tiny:
     information; set `expose_processes = false`.
   - Binding to a non-loopback address (`--export 0.0.0.0:9835`) exposes all
     of the above to your network. Do not do this on an untrusted LAN; there
-    is no auth layer.
+    is no auth layer by default.
+    Optionally set `[export] token` (config only, never CLI) to require
+    a Bearer token on /metrics and /snapshot.
 
 ## Secrets handling
 

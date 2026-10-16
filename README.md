@@ -244,9 +244,11 @@ zionstats --export 127.0.0.1:9835     # or [export] enabled = true in config
   (utilization, VRAM, power-vs-limit, temperatures, clocks, PCIe, energy
   rate + session Wh, throttle state-timeline, top-processes table).
 - Headless mode composes: `zionstats --log run.jsonl --export :9835`.
-- Security: no auth by design — keep the loopback bind on shared hosts, and
+- Security: no auth by default — keep the loopback bind on shared hosts, and
   set `[export] expose_processes = false` if PIDs/usernames/cmdlines are
-  sensitive in your environment (see [SECURITY.md](SECURITY.md)).
+  sensitive in your environment. To require auth, set `[export] token` in
+  the config (config only, never CLI); clients must then send
+  `Authorization: Bearer <token>` (see [SECURITY.md](SECURITY.md)).
 
 ## Presets, panels, mouse (v0.4)
 
