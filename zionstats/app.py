@@ -680,7 +680,7 @@ class App:
                 vx = (i % 2) * (W // 2)
                 vw = W // (min(len(self.indices), 2))
                 renderer(scr, self, vx, viz_y, vw, viz_h, idx)
-            if rects["proc"] and self.show_procs:
+            if self.show_procs:
                 layout.draw_processes(scr, self, 0, procs_y, W, procs_h)
             if self.show_alerts and list(self.alerts_engine.alerts):
                 layout.draw_alerts(scr, self, H - 2, W)
