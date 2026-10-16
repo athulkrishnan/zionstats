@@ -10,6 +10,10 @@ zionstats is a local desktop tool. Its security surface is deliberately tiny:
 - **LAN device control** (optional, off by default): smart plugs are driven
   directly over your LAN (Tuya/Kasa/Shelly/Tasmota local protocols or a Home
   Assistant REST token). Nothing is sent to any cloud by zionstats.
+  Note: a LAN man-in-the-middle can spoof plug verification readbacks
+  seen by the control loop. On any actuator error or failed readback
+  the daemon fails safe to driver-default fan control; do not treat
+  plug state as a safety mechanism.
 - **Mains actuation** (optional): the cooling controller switches real
   plugs. It ships disabled, supports a `dry_run` mode that never actuates,
   verifies every command by readback, and force-offs on stale telemetry.
