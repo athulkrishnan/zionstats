@@ -877,7 +877,7 @@ def draw_graphs_mode(scr: Screen, app, x: int, y: int, w: int, h: int, idx: int)
     graph_x = x + 3
     graph_w = w - 6
 
-    def graph_row(label, data, vmax, color_key, unit, threshold_hlines=None):
+    def graph_row(label, data, vmax, color_key, unit, hlines=None):
         nonlocal r
         if r + graph_h > y + h - 1:
             return
@@ -885,7 +885,8 @@ def draw_graphs_mode(scr: Screen, app, x: int, y: int, w: int, h: int, idx: int)
         r += 1
         # braille graph
         graph(scr, getattr(app, "graph_style", "braille"), graph_x, r,
-              graph_w, graph_h, data, vmax, th, color_key, floor=0.03)
+              graph_w, graph_h, data, vmax, th, color_key, floor=0.03,
+              hlines=hlines)
         # value label at the right edge
         if data:
             cur = data[-1]
