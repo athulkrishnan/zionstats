@@ -187,6 +187,25 @@ def test_config_file_permission():
         Path.home = real_home  # type: ignore
 
 
+def test_config_mode_warning():
+    """F2: group/other-readable config must produce a warning; 0600 and
+    missing files must not."""
+    import os
+
+    import zionstats.config as cfgmod
+
+    d = Path(tempfile.mkdtemp())
+    p = d / "config.toml"
+    p.write_text("interval = 1\n")
+    os.chmod(p, 0o644)
+    w = cfgmod.config_mode_warning(p)
+    assert w is not None and "group/other-readable" in w and "chmod 600" in w
+    os.chmod(p, 0o600)
+    assert cfgmod.config_mode_warning(p) is None
+    assert cfgmod.config_mode_warning(d / "missing.toml") is None
+    print("  config mode warning (0644 fires, 0600 silent)")
+
+
 def test_config_sections_load_from_file():
     """Regression: _coerce used to KeyError on refresh_min (a weather key
     checked against the cooling table), silently aborting [weather]/[cooling]
@@ -271,6 +290,7 @@ if __name__ == "__main__":
     test_bar_and_chip_colors_differ_from_bg()
     test_config_garbage_does_not_crash()
     test_config_file_permission()
+    test_config_mode_warning()
     test_config_sections_load_from_file()
     test_cooling_new_keys_coerced()
     test_zion_config_env_override()

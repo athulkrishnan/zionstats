@@ -76,6 +76,19 @@ def config_path() -> Path:
     return Path.home() / ".config" / "zionstats" / "config.toml"
 
 
+def config_mode_warning(path: Path | None = None) -> str | None:
+    """Non-fatal F2 check: flag a config file readable by group/other."""
+    p = Path(path) if path is not None else config_path()
+    try:
+        mode = p.stat().st_mode
+    except OSError:
+        return None
+    if mode & 0o077:
+        return (f"{p} is group/other-readable (mode {oct(mode & 0o777)}); "
+                "it can hold plug credentials -- chmod 600")
+    return None
+
+
 def _quote(v) -> str:
     return '"' + str(v).replace("\\", "\\\\").replace('"', '\\"') + '"'
 

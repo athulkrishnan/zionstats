@@ -421,4 +421,25 @@ mod tests {
         assert_eq!(cfg.export_token, "s3cret");
         assert_eq!(Config::default().export_token, "");
     }
+
+    #[test]
+    #[cfg(unix)]
+    fn mode_warning_fires_only_for_wide_perms() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("config.toml");
+        std::fs::write(&p, "interval = 1\n").unwrap();
+        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o644)).unwrap();
+        let (_, warnings) = load_verbose(&p);
+        assert!(
+            warnings.iter().any(|w| w.contains("group/other-readable")),
+            "0644 config must warn"
+        );
+        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let (_, warnings) = load_verbose(&p);
+        assert!(
+            !warnings.iter().any(|w| w.contains("group/other-readable")),
+            "0600 config must not warn"
+        );
+    }
 }
