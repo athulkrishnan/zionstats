@@ -103,9 +103,10 @@ class Insights:
             if s.util_gpu is not None and s.util_gpu > 50:
                 ins.clock_deficit_mhz = max(0, s.clocks_max_sm_mhz - s.clocks_sm_mhz)
 
-        # ---- thermal
-        if s.temp_gpu is not None and s.temp_slowdown is not None:
-            ins.thermal_headroom = s.temp_slowdown - s.temp_gpu
+        # ---- thermal (hottest-part sensor preferred when the driver has one)
+        temp_now = s.temp_gpu_max if s.temp_gpu_max is not None else s.temp_gpu
+        if temp_now is not None and s.temp_slowdown is not None:
+            ins.thermal_headroom = s.temp_slowdown - temp_now
         if temp_hist and len(temp_hist) >= 4:
             xs = list(temp_hist)
             span = (xs[-1][0] - xs[0][0]) or 1.0

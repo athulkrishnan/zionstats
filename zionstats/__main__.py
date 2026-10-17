@@ -232,6 +232,10 @@ def doctor() -> int:
         feat = []
         feat.append(("power", s.power_w is not None))
         feat.append(("throttle-reasons", bool(s.throttle) or s.throttle_bits == 0))
+        feat.append(("hottest-temp", s.temp_gpu_max is not None))
+        feat.append(("fan-rpm", s.fan_rpm is not None))
+        feat.append(("pcie-replay", s.pcie_replay is not None))
+        feat.append(("throttle-counters", s.throttle_counters is not None))
         feat.append(("enc/dec", s.util_enc is not None))
         feat.append(("pcie", s.pcie_rx_kbps is not None))
         feat.append(("ecc", s.ecc_sbe is not None))

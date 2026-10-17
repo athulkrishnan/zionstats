@@ -25,6 +25,26 @@ def mk_sample(**kw) -> Sample:
     return Sample(**base)
 
 
+def test_golden_new_field_series():
+    """v0.6 tops-ups: hottest-part temp (new sensor label), fan RPM, PCIe
+    replay counter.  Absent fields must omit the series (never NaN)."""
+    s = mk_sample(temp_gpu_max=88, fan_rpm=2150, pcie_replay=7)
+    text = render_metrics(Payload(env={}, samples=[s], procs=[], insights={}))
+    assert ('zionstats_gpu_temperature_celsius{gpu="0",name="Weird \\"GPU\\" \\\\name",'
+            'uuid="GPU-test",sensor="hottest"} 88.0') in text
+    assert ('zionstats_gpu_fan_rpm{gpu="0",name="Weird \\"GPU\\" \\\\name",'
+            'uuid="GPU-test"} 2150.0') in text
+    assert ('zionstats_gpu_pcie_replay_counter_total{gpu="0",name="Weird \\"GPU\\" \\\\name",'
+            'uuid="GPU-test"} 7.0') in text
+    # absent -> series omitted entirely
+    s2 = mk_sample()
+    text2 = render_metrics(Payload(env={}, samples=[s2], procs=[], insights={}))
+    assert 'sensor="hottest"' not in text2
+    assert "gpu_fan_rpm" not in text2
+    assert "gpu_pcie_replay_counter_total" not in text2
+    print("  golden new-field series (hottest/rpm/replay)")
+
+
 def test_golden_full_sample():
     p = Payload(env={}, samples=[mk_sample()], procs=[],
                 insights={}, version="0.4.0")
@@ -200,6 +220,7 @@ def test_live_loopback_token_auth():
 
 if __name__ == "__main__":
     test_golden_full_sample()
+    test_golden_new_field_series()
     test_none_fields_omit_series_never_nan()
     test_insights_and_process_series()
     test_empty_payload()

@@ -273,9 +273,20 @@ def draw_gpu_card(
             rate = "▲"
         elif ins and ins.thermal_rate_c_per_min < -2:
             rate = "▼"
+        if s.temp_gpu_max is not None:
+            # hottest-part sensor present: show it next to edge temp, marked (j)
+            temp_txt = (
+                f"{fmt_temp(s.temp_gpu, app.fahrenheit)}/"
+                f"{fmt_temp(s.temp_gpu_max, app.fahrenheit)}(j){rate}"
+            )
+        else:
+            temp_txt = (
+                f"{fmt_temp(s.temp_gpu, app.fahrenheit)}/"
+                f"{fmt_temp(temp_max, app.fahrenheit)}{rate}"
+            )
         scr.puts(
             tx + tw + 1, r,
-            f"{fmt_temp(s.temp_gpu, app.fahrenheit)}/{fmt_temp(temp_max, app.fahrenheit)}{rate}",
+            temp_txt,
             th.q(tc), bg, maxw=w - (tx + tw + 1 - x) - 2,
         )
     r += 1

@@ -103,11 +103,14 @@ def render_metrics(p: Payload) -> str:
                 "gauge", labels + ',sensor="gpu"', s.temp_gpu)
         series("gpu_temperature_celsius", "Memory temperature (C)",
                 "gauge", labels + ',sensor="memory"', s.temp_mem)
+        series("gpu_temperature_celsius", "Hottest-part temperature (C)",
+                "gauge", labels + ',sensor="hottest"', s.temp_gpu_max)
         series("gpu_clock_sm_mhz", "SM clock (MHz)", "gauge",
                 labels, s.clocks_sm_mhz)
         series("gpu_clock_mem_mhz", "Memory clock (MHz)", "gauge",
                 labels, s.clocks_mem_mhz)
         series("gpu_fan_percent", "Fan speed (%)", "gauge", labels, s.fan_pct)
+        series("gpu_fan_rpm", "Fan speed (RPM)", "gauge", labels, s.fan_rpm)
         series("gpu_pcie_link_gen", "PCIe link generation", "gauge",
                 labels, s.pcie_gen_cur)
         series("gpu_pcie_link_width", "PCIe link width (lanes)",
@@ -118,6 +121,9 @@ def render_metrics(p: Payload) -> str:
         series("gpu_pcie_tx_bytes_per_second",
                 "PCIe write throughput (bytes/s; NVML reports KB/s)",
                 "gauge", labels, s.pcie_tx_kbps * 1000 if s.pcie_tx_kbps is not None else None)
+        series("gpu_pcie_replay_counter_total",
+                "PCIe replay counter since driver load (counter, not gauge)",
+                "counter", labels, s.pcie_replay)
         series("gpu_throttle_bitmask",
                 "NVML clocksThrottleReasons bitmask (nvml.h ABI)", "gauge",
                 labels, s.throttle_bits)

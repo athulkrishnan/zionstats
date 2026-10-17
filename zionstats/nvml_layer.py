@@ -33,6 +33,7 @@ class Sample:
     arch: str = "?"
     compute_cap: str = ""
     pstate: str = ""
+    vendor: str = "nvidia"  # nvidia | amd | intel | demo
     util_gpu: float | None = None
     util_mem: float | None = None
     util_enc: float | None = None
@@ -54,17 +55,26 @@ class Sample:
     energy_mj: int | None = None
     throttle_bits: int = 0
     throttle: list[str] = field(default_factory=list)
+    # historical clocks-event-reason tallies (driver 575+); None when the
+    # installed binding does not expose the counters API
+    throttle_counters: dict[str, int] | None = None
     temp_gpu: int | None = None
+    # hottest-part sensor (NVML v615 TEMPERATURE_GPU_MAX); None when absent
+    temp_gpu_max: int | None = None
     temp_mem: int | None = None
     temp_slowdown: int | None = None
     temp_shutdown: int | None = None
     fan_pct: int | None = None
+    fan_rpm: int | None = None
     pcie_gen_cur: int | None = None
     pcie_gen_max: int | None = None
     pcie_width_cur: int | None = None
     pcie_width_max: int | None = None
     pcie_rx_kbps: int | None = None
     pcie_tx_kbps: int | None = None
+    # cumulative PCIe replay counter (seconds-since-driver-load semantics
+    # untouched: counter, not gauge, downstream); None when unsupported
+    pcie_replay: int | None = None
     ecc_sbe: int | None = None
     ecc_dbe: int | None = None
     mig_mode: str | None = None
@@ -125,6 +135,25 @@ class NvmlProvider:
         self._proc_cache = TTLCache(maxsize=256, ttl=30.0)
         self._energy0: dict[int, int | None] = {}
         self._fast_ids = self._resolve_fast_fields()
+        # capability probes: absent binding constants/functions mean the
+        # feature is absent on this box (never synthesized)
+        self._replay_fid: int | None = None
+        fid = getattr(self.nv, "NVML_FI_DEV_PCIE_REPLAY_COUNTER", None)
+        if fid is not None:
+            self._replay_fid = int(fid)
+        self._fan_rpm_fn = (
+            getattr(self.nv, "nvmlDeviceGetFanSpeedRPM", None)
+            or getattr(self.nv, "nvmlDeviceGetFanSpeedRpm", None)
+        )
+        self._temp_gpu_max_const = getattr(self.nv, "NVML_TEMPERATURE_GPU_MAX", None)
+        self._throttle_counters_fn = None
+        for name in ("nvmlDeviceGetClkEventReasonCounters",
+                     "nvmlDeviceGetClockEventReasonCounters",
+                     "nvmlDeviceGetClkEventsReasonCounters"):
+            fn = getattr(self.nv, name, None)
+            if fn is not None:
+                self._throttle_counters_fn = fn
+                break
 
     # -- fast-path field resolution -------------------------------------
 
@@ -225,7 +254,13 @@ class NvmlProvider:
         if bits is not None:
             s.throttle_bits = int(bits)
             s.throttle = decode_throttle(self.nv, int(bits))
+        if self._throttle_counters_fn is not None:
+            s.throttle_counters = self._throttle_counters(h)
         s.temp_gpu = _g(lambda: self.nv.nvmlDeviceGetTemperature(h, self.nv.NVML_TEMPERATURE_GPU), None)
+        if self._temp_gpu_max_const is not None:
+            s.temp_gpu_max = _g(
+                lambda: self.nv.nvmlDeviceGetTemperature(h, self._temp_gpu_max_const), None
+            )
         s.temp_mem = _g(
             lambda: self.nv.nvmlDeviceGetTemperature(h, getattr(self.nv, "NVML_TEMPERATURE_MEMORY", -1)),
             None,
@@ -239,6 +274,12 @@ class NvmlProvider:
             None,
         )
         s.fan_pct = _g(lambda: self.nv.nvmlDeviceGetFanSpeed(h), None)
+        fan_rpm_fn = self._fan_rpm_fn
+        if fan_rpm_fn is not None:
+            rpm = _g(lambda: fan_rpm_fn(h, 0), None)
+            if rpm is None:
+                rpm = _g(lambda: fan_rpm_fn(h), None)  # older 1-arg binding
+            s.fan_rpm = int(rpm) if rpm is not None else None
         s.pcie_gen_max = _g(lambda: self.nv.nvmlDeviceGetMaxPcieLinkGeneration(h), None)
         s.pcie_gen_cur = _g(lambda: self.nv.nvmlDeviceGetPcieLinkGeneration(h), s.pcie_gen_max)
         s.pcie_width_max = _g(lambda: self.nv.nvmlDeviceGetMaxPcieLinkWidth(h), None)
@@ -281,9 +322,12 @@ class NvmlProvider:
         """One batched FieldValues call for the hot metrics; slow getters fill gaps."""
         if self._fast_ids:
             try:
-                vals = self.nv.nvmlDeviceGetFieldValues(h, list(self._fast_ids.values()))
+                ids = dict(self._fast_ids)
+                if self._replay_fid is not None:
+                    ids["NVML_FI_DEV_PCIE_REPLAY_COUNTER"] = self._replay_fid
+                vals = self.nv.nvmlDeviceGetFieldValues(h, list(ids.values()))
                 got: dict[str, float] = {}
-                for (name, _fid), fv in zip(self._fast_ids.items(), vals):
+                for (name, _fid), fv in zip(ids.items(), vals):
                     if getattr(fv, "nvmlReturn", -1) == 0:
                         v = _field_value(fv)
                         if v is not None:
@@ -307,12 +351,43 @@ class NvmlProvider:
                     s.clocks_mem_mhz = int(got["NVML_FI_DEV_MEM_CLOCK"])
                 if "NVML_FI_DEV_TOTAL_ENERGY_CONSUMPTION" in got:
                     s.energy_mj = int(got["NVML_FI_DEV_TOTAL_ENERGY_CONSUMPTION"])
+                if "NVML_FI_DEV_PCIE_REPLAY_COUNTER" in got:
+                    s.pcie_replay = int(got["NVML_FI_DEV_PCIE_REPLAY_COUNTER"])
             except Exception:
                 pass
         if s.power_w is None:
             s.power_w = _mw(lambda: self.nv.nvmlDeviceGetPowerUsage(h))
         if s.power_limit_w is None:
             s.power_limit_w = _mw(lambda: self.nv.nvmlDeviceGetEnforcedPowerLimit(h))
+        if s.pcie_replay is None:
+            fn = getattr(self.nv, "nvmlDeviceGetPcieReplayCounter", None)
+            if fn is not None:
+                v = _g(lambda: fn(h), None)
+                if v is not None:
+                    s.pcie_replay = int(v)
+
+    def _throttle_counters(self, h: object) -> dict[str, int] | None:
+        """Historical clocks-event-reason tallies (driver 575+).  Only the
+        installed binding's own struct/dict shape is trusted; anything else
+        leaves the feature None."""
+        fn = self._throttle_counters_fn
+        if fn is None:
+            return None
+        res = _g(lambda: fn(h), None)
+        if res is None:
+            return None
+        if isinstance(res, dict):
+            return {str(k): int(v) for k, v in res.items() if isinstance(v, int)}
+        fields = getattr(res, "_fields_", None)  # ctypes struct from the binding
+        if fields:
+            out = {}
+            for fname, _ftype in fields:
+                v = getattr(res, fname, None)
+                if isinstance(v, int):
+                    out[str(fname)] = v
+            if out:
+                return out
+        return None
 
     # -- processes -------------------------------------------------------
 
@@ -503,8 +578,16 @@ def _field_value(fv) -> float | None:
 
 
 def decode_throttle(nv, bits: int) -> list[str]:
-    # nvml.h clocksThrottleReasons bits (stable ABI)
-    table = (
+    """Decode a clocksThrottleReasons mask into labels.
+
+    The v12-era bits (0x001..0x100) are stable nvml.h ABI and always decoded.
+    Newer driver bits (v615: Board-Limit, Reliability, ...) are appended only
+    when the installed binding exports their NVML_CLOCKS_EVENT_REASON_*
+    constants -- values always resolved from the binding, never from memory.
+    The mask is open-ended (NVIDIA reserves the right to add bits), so any
+    set bit with no label decodes as Bit-0xN and stays visible in the UI.
+    """
+    table = [
         (0x001, "GPU-Idle"),
         (0x002, "App-Clocks"),
         (0x004, "SW-Power-Cap"),
@@ -514,8 +597,30 @@ def decode_throttle(nv, bits: int) -> list[str]:
         (0x040, "HW-Thermal"),
         (0x080, "HW-Brake"),
         (0x100, "Display-Clocks"),
-    )
-    return [label for bit, label in table if bits & bit]
+    ]
+    seen = {bit for bit, _ in table}
+    for const, label in _EXTRA_REASON_CONSTANTS:
+        v = getattr(nv, const, None)
+        if isinstance(v, int) and v and v not in seen:
+            table.append((v, label))
+            seen.add(v)
+    out = [label for bit, label in table if bits & bit]
+    for shift in range(max(1, bits.bit_length())):
+        bit = 1 << shift
+        if bits & bit and bit not in seen:
+            out.append(f"Bit-0x{bit:x}")
+    return out
+
+
+# (binding constant name, UI label) pairs probed at decode time; several
+# spellings per label cover nvidia-ml-py naming drift.  A constant the
+# installed binding does not export contributes nothing.
+_EXTRA_REASON_CONSTANTS = (
+    ("NVML_CLOCKS_EVENT_REASON_BOARD_LIMIT", "Board-Limit"),
+    ("NVML_CLOCKS_EVENT_REASON_BOARD_LIMIT_EPD", "Board-Limit"),
+    ("NVML_CLOCKS_EVENT_REASON_RELIABILITY", "Reliability"),
+    ("NVML_CLOCKS_EVENT_REASON_RELIABILITY_OVERHEATING", "Reliability"),
+)
 
 
 def _arch_name(major: int, minor: int) -> str:

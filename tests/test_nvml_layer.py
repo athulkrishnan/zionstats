@@ -35,6 +35,47 @@ def test_decode_throttle_combos():
     print("  combos")
 
 
+def test_decode_throttle_unknown_bits_visible():
+    """The mask is open-ended: a set bit with no label must surface as
+    Bit-0xN instead of hiding."""
+    got = decode_throttle(object(), 0x400)
+    assert got == ["Bit-0x400"], got
+    got = decode_throttle(object(), 0x1 | 0x400 | 0x8000)
+    assert got == ["GPU-Idle", "Bit-0x400", "Bit-0x8000"], got
+    print("  unknown bits decode visibly")
+
+
+def test_decode_throttle_binding_resolved_extras():
+    """v615 reasons decode only when the installed binding exports their
+    constants; the numeric value comes from the binding, not from memory."""
+
+    class FakeBindingNew:
+        NVML_CLOCKS_EVENT_REASON_BOARD_LIMIT = 0x200
+
+    assert decode_throttle(FakeBindingNew(), 0x200) == ["Board-Limit"]
+    # a binding without the constant leaves the bit unknown-but-visible
+    assert decode_throttle(object(), 0x200) == ["Bit-0x200"]
+    # duplicate constant under an alternate spelling contributes nothing new
+    class FakeBindingBoth:
+        NVML_CLOCKS_EVENT_REASON_BOARD_LIMIT = 0x200
+        NVML_CLOCKS_EVENT_REASON_BOARD_LIMIT_EPD = 0x200
+
+    assert decode_throttle(FakeBindingBoth(), 0x200) == ["Board-Limit"]
+    print("  binding-resolved extra reasons")
+
+
+def test_sample_new_fields_default():
+    from zionstats.nvml_layer import Sample
+
+    s = Sample(ts=1.0, index=0)
+    assert s.vendor == "nvidia"
+    assert s.temp_gpu_max is None
+    assert s.fan_rpm is None
+    assert s.pcie_replay is None
+    assert s.throttle_counters is None
+    print("  sample defaults")
+
+
 def test_field_value_value_types():
     # valueType -> member: 1 dVal, 2 uiVal, 3 ulVal, 4 ullVal, 5 lVal
     for vt, attr, val in ((1, "dVal", 42.5), (2, "uiVal", 7), (3, "ulVal", 9),
@@ -124,6 +165,9 @@ def test_pid_cpu_delta_garbled_stat():
 if __name__ == "__main__":
     test_decode_throttle_individual_bits()
     test_decode_throttle_combos()
+    test_decode_throttle_unknown_bits_visible()
+    test_decode_throttle_binding_resolved_extras()
+    test_sample_new_fields_default()
     test_field_value_value_types()
     test_field_value_failure_and_garbage()
     test_arch_name()
