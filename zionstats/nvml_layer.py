@@ -638,8 +638,9 @@ def _arch_name(major: int, minor: int) -> str:
 
 
 class DemoProvider:
-    """Two synthetic GPUs running a scripted 120 s load arc incl. a
-    thermal-throttle sequence on GPU 0 and a power-cap arc on GPU 1."""
+    """Three synthetic GPUs running a scripted 120 s load arc: a thermal-
+    throttle sequence (0), a power-capped memory-bound arc (1), and an
+    AMD card with a junction-temp arc (2)."""
 
     PERIOD = 120.0
 
@@ -661,6 +662,7 @@ class DemoProvider:
     _ALL = [
         {"index": 0, "name": "NVIDIA GeForce RTX 4070 Ti SUPER", "uuid": "GPU-demo-4070tis"},
         {"index": 1, "name": "NVIDIA H100 PCIe", "uuid": "GPU-demo-h100"},
+        {"index": 2, "name": "AMD Radeon RX 7900 XTX", "uuid": "AMD-0000:0b:00.0"},
     ]
 
     def devices(self) -> list[dict]:
@@ -678,7 +680,7 @@ class DemoProvider:
             return a * (self._rand.random() - 0.5)
 
         out = []
-        want = self._only or {0, 1}
+        want = self._only or {0, 1, 2}
 
         # -- GPU 0: idle -> burst -> sustained -> thermal throttle -> cooldown
         if t < 15:
@@ -757,6 +759,44 @@ class DemoProvider:
         ))
         if 1 not in want:
             out.pop()
+
+        # -- GPU 2: AMD RDNA3 -- edge/junction split with a junction peak
+        if 2 in want:
+            load2 = min(100.0, max(5.0, 60 + 38 * (1 if t > 30 and t < 95 else 0.2) + j(4)))
+            edge2 = 55 + min(15.0, max(0.0, (t - 8) * 0.9)) - max(0.0, (t - 95) * 1.4) + j(0.7)
+            edge2 = min(70.0, max(52.0, edge2))
+            # hotspot runs far above edge under load (GDDR6X/CDNA-class gap);
+            # peaks near 108 C mid-arc -- the paste/pad-failure signal
+            junc2 = edge2 + 18 + 20 * min(1.0, max(0.0, (t - 20) / 40)) - max(0.0, (t - 100) * 1.6)
+            junc2 = min(108.0, max(edge2 + 8.0, junc2))
+            junc_hot = junc2 >= 100.0
+            out.append(Sample(
+                ts=now, index=2, vendor="amd",
+                uuid="AMD-0000:0b:00.0",
+                name="AMD Radeon RX 7900 XTX", arch="RDNA3", compute_cap="",
+                pstate="auto",
+                util_gpu=load2, util_mem=None,
+                mem_used=int((6 if t < 20 else 20.5) * 2**30 + j(0.6 * 2**30)),
+                mem_total=24 * 2**30,
+                power_w=min(452.0, max(28.0, 30 + load2 * 4.2)) if t > 15 else 29.0 + j(2),
+                power_limit_w=455.0, power_default_w=455.0,
+                power_min_w=100.0, power_max_w=500.0,
+                clocks_sm_mhz=int(2310 if load2 > 40 else 480 + j(60)),
+                clocks_mem_mhz=2500,
+                clocks_max_sm_mhz=2500,
+                energy_mj=None,  # no hw counter: session Wh via integration
+                throttle_bits=0,
+                throttle=(["SW-Thermal", "Junction-Hot"] if junc_hot else []),
+                temp_gpu=int(edge2), temp_gpu_max=int(junc2), temp_mem=84,
+                temp_slowdown=90, temp_shutdown=100,
+                fan_pct=int(min(100, max(20, (edge2 - 30) * 2.2))),
+                fan_rpm=None,  # amdgpu sysfs has no rpm readout
+                pcie_gen_cur=4, pcie_gen_max=4, pcie_width_cur=16, pcie_width_max=16,
+                pcie_rx_kbps=int((load2 - 10) * 21000 + j(5000)) if load2 > 10 else 130,
+                pcie_tx_kbps=int((load2 - 10) * 4200 + j(1500)) if load2 > 10 else 95,
+                ecc_sbe=None, ecc_dbe=None, mig_mode=None, mig_instances=0,
+                display_active=None, persistence=None, compute_mode=None,
+            ))
         return out
 
     def processes(self) -> list[GpuProcess]:
@@ -776,6 +816,12 @@ class DemoProvider:
                                     26.0, "mlteam", "python -m vllm.entrypoints serve"))
             procs.append(GpuProcess(192101, 1, "C", int(1.8 * 2**30), 6.0, 2.0, 0.0, 0.0, 1.2,
                                     "mlteam", "python watchdog.py"))
+        if t > 20:
+            # AMD fdinfo client: per-process mem/util from drm-* deltas
+            # (util_mem absent -- amdgpu has no bandwidth utilization)
+            procs.append(GpuProcess(220001, 2, "C", int(1.4 * 2**30), 97.0, None,
+                                    None, None, 41.0, "demo",
+                                    "blender --background --cycles"))
         if not active0:
             procs = [p for p in procs if p.gpu_index != 0 or p.type == "G"]
         if self._only:
@@ -830,4 +876,6 @@ def _demo_proc_info() -> dict[int, ProcInfo]:
                       ("USER", "mlteam")]),
         192101: info(192101, 192000, "mlteam", "python watchdog.py", "/srv/vllm",
                      "/usr/bin/python3.12", [("USER", "mlteam")]),
+        220001: info(220001, 810, "demo", "blender --background --cycles",
+                     "/home/demo/scene", "/usr/bin/blender", [("USER", "demo")]),
     }

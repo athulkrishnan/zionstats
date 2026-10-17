@@ -203,7 +203,7 @@ def test_demo_provider_smoke():
     p = DemoProvider()
     env = p.environment()
     assert env["provider"] == "demo"
-    assert len(p.devices()) == 2
+    assert len(p.devices()) == 3
     samples = p.sample()
     assert all(isinstance(s, Sample) for s in samples)
     procs = p.processes()

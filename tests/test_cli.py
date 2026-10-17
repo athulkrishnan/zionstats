@@ -61,7 +61,7 @@ def test_demo_snapshot_json():
     assert rc == 0
     f = json.loads(buf.getvalue())
     assert f["env"]["provider"] == "demo"
-    assert len(f["devices"]) == 2
+    assert len(f["devices"]) == 3
     print("  --demo --snapshot end to end")
 
 
