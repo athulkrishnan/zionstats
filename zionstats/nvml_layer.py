@@ -638,9 +638,10 @@ def _arch_name(major: int, minor: int) -> str:
 
 
 class DemoProvider:
-    """Three synthetic GPUs running a scripted 120 s load arc: a thermal-
-    throttle sequence (0), a power-capped memory-bound arc (1), and an
-    AMD card with a junction-temp arc (2)."""
+    """Four synthetic GPUs running a scripted 120 s load arc: a thermal-
+    throttle sequence (0), a power-capped memory-bound arc (1), an AMD
+    card with a junction-temp arc (2), and an Intel iGPU with the
+    provider's honest gaps (no power, no fan) (3)."""
 
     PERIOD = 120.0
 
@@ -663,6 +664,7 @@ class DemoProvider:
         {"index": 0, "name": "NVIDIA GeForce RTX 4070 Ti SUPER", "uuid": "GPU-demo-4070tis"},
         {"index": 1, "name": "NVIDIA H100 PCIe", "uuid": "GPU-demo-h100"},
         {"index": 2, "name": "AMD Radeon RX 7900 XTX", "uuid": "AMD-0000:0b:00.0"},
+        {"index": 3, "name": "Intel Iris Xe Graphics", "uuid": "INTEL-0000:00:02.0"},
     ]
 
     def devices(self) -> list[dict]:
@@ -680,7 +682,7 @@ class DemoProvider:
             return a * (self._rand.random() - 0.5)
 
         out = []
-        want = self._only or {0, 1, 2}
+        want = self._only or {0, 1, 2, 3}
 
         # -- GPU 0: idle -> burst -> sustained -> thermal throttle -> cooldown
         if t < 15:
@@ -797,6 +799,36 @@ class DemoProvider:
                 ecc_sbe=None, ecc_dbe=None, mig_mode=None, mig_instances=0,
                 display_active=None, persistence=None, compute_mode=None,
             ))
+
+        # -- GPU 3: Intel iGPU -- honest gaps mirror the provider:
+        # no power (no GPU-attributable sysfs path), no fan, no enc/dec
+        if 3 in want:
+            load3 = min(100.0, max(2.0, 25 + 55 * (1 if 35 < t < 90 else 0.1) + j(5)))
+            out.append(Sample(
+                ts=now, index=3, vendor="intel",
+                uuid="INTEL-0000:00:02.0",
+                name="Intel Iris Xe Graphics", arch="Xe-LP", compute_cap="",
+                pstate="",
+                util_gpu=load3, util_mem=None,
+                mem_used=int((0.4 if t < 35 else 7.5) * 2**30 + j(0.2 * 2**30)),
+                mem_total=16 * 2**30,
+                power_w=None,  # provider never reports it -- demo matches
+                power_limit_w=None, power_default_w=None,
+                power_min_w=None, power_max_w=None,
+                clocks_sm_mhz=int(2100 if load3 > 50 else 400 + j(80)),
+                clocks_mem_mhz=None, clocks_max_sm_mhz=2100,
+                energy_mj=None,
+                throttle_bits=0, throttle=[],
+                temp_gpu=int(45 + min(18.0, max(0.0, (t - 30) * 0.5)) - max(0.0, (t - 92) * 1.2) + j(0.6)),
+                temp_gpu_max=None, temp_mem=None,
+                temp_slowdown=85, temp_shutdown=100,
+                fan_pct=None, fan_rpm=None,
+                pcie_gen_cur=None, pcie_gen_max=None,
+                pcie_width_cur=None, pcie_width_max=None,
+                pcie_rx_kbps=None, pcie_tx_kbps=None,
+                ecc_sbe=None, ecc_dbe=None, mig_mode=None, mig_instances=0,
+                display_active=None, persistence=None, compute_mode=None,
+            ))
         return out
 
     def processes(self) -> list[GpuProcess]:
@@ -822,6 +854,11 @@ class DemoProvider:
             procs.append(GpuProcess(220001, 2, "C", int(1.4 * 2**30), 97.0, None,
                                     None, None, 41.0, "demo",
                                     "blender --background --cycles"))
+        if t > 35:
+            # Intel iGPU client: sm from rcs0 fdinfo deltas, mem_pct absent
+            procs.append(GpuProcess(230101, 3, "G", int(0.9 * 2**30), 43.0, None,
+                                    None, None, 9.5, "demo",
+                                    "chrome --type=gpu-process --use-gl"))
         if not active0:
             procs = [p for p in procs if p.gpu_index != 0 or p.type == "G"]
         if self._only:
@@ -878,4 +915,6 @@ def _demo_proc_info() -> dict[int, ProcInfo]:
                      "/usr/bin/python3.12", [("USER", "mlteam")]),
         220001: info(220001, 810, "demo", "blender --background --cycles",
                      "/home/demo/scene", "/usr/bin/blender", [("USER", "demo")]),
+        230101: info(230101, 800, "demo", "chrome --type=gpu-process --use-gl",
+                     "", "/usr/bin/chrome", []),
     }

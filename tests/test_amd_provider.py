@@ -190,9 +190,9 @@ def test_client_cap_256():
 def test_demo_third_card():
     prov = DemoProvider()
     devs = prov.devices()
-    assert [d["index"] for d in devs] == [0, 1, 2]
+    assert [d["index"] for d in devs] == [0, 1, 2, 3]
     samples = {s.index: s for s in prov.sample()}
-    assert set(samples) == {0, 1, 2}
+    assert set(samples) == {0, 1, 2, 3}
     amd = samples[2]
     assert amd.vendor == "amd" and "7900" in amd.name
     assert amd.mem_total == 24 * 1024**3
