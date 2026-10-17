@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "zionstats"
-version = "0.5.0"
-description = "A btop-grade NVIDIA GPU observatory -- dense, colorful, insight-first"
+version = "0.6.0"
+description = "A btop-grade GPU observatory -- NVIDIA, AMD, and Intel, honest about the gaps"
 readme = "README.md"
 requires-python = ">=3.9"
 license = { file = "LICENSE" }

@@ -1,7 +1,7 @@
-"""zionstats -- a btop-grade NVIDIA GPU observatory.
+"""zionstats -- a btop-grade GPU observatory (NVIDIA, AMD, Intel).
 
 Inspired by nvitop (XuehaiPan) and the design language of btop (aristocratos).
 """
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"
 __author__ = "Athul Krishnan"

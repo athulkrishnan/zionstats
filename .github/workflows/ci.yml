@@ -36,6 +36,10 @@ jobs:
           python tests/test_procs.py
           python tests/test_app_keys.py
           python tests/test_exporter.py
+          python tests/test_drmfd.py
+          python tests/test_amd_provider.py
+          python tests/test_intel_provider.py
+          python tests/test_plug_power.py
       - name: CLI smoke
         run: |
           zionstats --version

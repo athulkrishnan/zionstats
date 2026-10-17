@@ -19,20 +19,23 @@ insight-first.
 llama-server/vLLM, what the verdict chips mean during inference, and the
 Prometheus/Grafana fleet view.
 
-**v0.5.0 — Process forensics + btop-grade UX + built-in Prometheus exporter**:
-a selectable/tree/detail process explorer with safe signal delivery, full
-mouse support, an in-TUI options menu, layout presets, and a stdlib-only
-Prometheus endpoint with a ready-made Grafana dashboard.
+**v0.6.0 — every vendor, honest about it**: AMD (amdgpu sysfs + DRM
+fdinfo per-process stats) and Intel (i915/xe, experimental) join NVIDIA
+under one TUI and one exporter; hottest-part temperature, fan RPM, and
+PCIe replay counters where the driver exposes them; smart-plug wall-power
+metering. See the [vendor support matrix](docs/MULTI-VENDOR.md) for
+exactly what each backend reports -- and what it refuses to invent.
 
-zionstats watches your NVIDIA GPUs the way btop watches your CPU: full-canvas
-TUI, gradient braille graphs, block bars, rounded panels, 16 built-in themes,
-and a researcher-grade metric layer on top of NVML -- throttle reasons, clock
-deficit, PCIe saturation, session energy, per-process GPU utilization, and a
-live verdict chip (`COMPUTE-BOUND`, `POWER-LIMITED`, `THERMALLY-LIMITED`,
-`MEMORY-BOUND`, `IDLE`).
+zionstats watches your GPUs the way btop watches your CPU: full-canvas
+TUI, gradient braille graphs, block bars, rounded panels, 16 built-in
+themes, and a researcher-grade metric layer -- throttle reasons, clock
+deficit, PCIe saturation, session energy, per-process GPU utilization,
+and a live verdict chip (`COMPUTE-BOUND`, `POWER-LIMITED`,
+`THERMALLY-LIMITED`, `MEMORY-BOUND`, `IDLE`).
 
-One dependency (`nvidia-ml-py`). Stdlib curses renderer with a diff-flush
-cell buffer, so it stays crisp over SSH, in tmux splits, and in iTerm2.
+One runtime dependency (`nvidia-ml-py`; AMD/Intel paths are pure stdlib
+sysfs). Stdlib curses renderer with a diff-flush cell buffer, so it
+stays crisp over SSH, in tmux splits, and in iTerm2.
 
 <img alt="zionstats" src="https://raw.githubusercontent.com/athulkrishnan/zionstats/refs/heads/main/Screenshot.png">
 
@@ -330,14 +333,17 @@ Python, no interpreter needed) — `linux_amd64`, `linux_arm64`,
 macOS Intel and other platforms: `pip install` from source runs anywhere
 Python 3.9+ does.
 
-| Platform | Live NVML metrics | Notes |
-|---|---|---|
-| Linux | yes (primary target) | NVIDIA driver 5xx+ |
-| Windows | yes | `windows-curses` auto-installed with pip; binaries bundle it |
-| macOS | demo mode | NVIDIA dropped modern macOS drivers; TUI + `--demo` work |
+| Platform | Live NVIDIA metrics | Live AMD/Intel metrics | Notes |
+|---|---|---|---|
+| Linux | yes (primary target) | yes (amdgpu / i915 / xe sysfs) | NVIDIA driver 5xx+; AMD/Intel per-process needs kernel >= 5.14 |
+| Windows | yes | no (sysfs is Linux-only) | `windows-curses` auto-installed with pip; binaries bundle it |
+| macOS | demo mode | demo mode | NVIDIA dropped modern macOS drivers; TUI + `--demo` work |
 
-Requires an NVIDIA GPU with driver 5xx+ for live metrics; `--demo` works
-anywhere.
+Requires an NVIDIA GPU with driver 5xx+ for live NVML metrics; AMD and
+Intel cards are read through the kernel's sysfs interface on Linux
+(--provider amd|intel, or auto-detection). `--demo` works anywhere.
+See the [vendor support matrix](docs/MULTI-VENDOR.md) for the honest
+per-metric coverage.
 
 ## Usage
 
@@ -429,9 +435,28 @@ one-time "trusted publisher" entry on PyPI for this repo/workflow.
 **Does it work with multiple GPUs?** Yes -- hero/grid layouts scale to 8+
 cards; cards tile and the verdict engine runs per GPU.
 
-**Does it need a GPU?** No. `zionstats --demo` runs a synthetic two-GPU
-scenario (including a scripted thermal-throttle arc and a mock blower) for
-theme development, screenshots, and CI.
+**Does it need a GPU?** No. `zionstats --demo` runs a synthetic four-GPU
+scenario (two NVIDIA arcs, an AMD card with a junction-temp peak, an
+Intel iGPU, and a mock blower) for theme development, screenshots, and
+CI.
+
+**AMD or Intel support?** Yes on Linux: `--provider amd` / `--provider
+intel`, or leave `auto` and the drm vendor scan picks it up. Coverage is
+honest per metric -- see the [matrix](docs/MULTI-VENDOR.md) -- and
+per-process stats need kernel >= 5.14 (DRM fdinfo).
+
+**RTX 50: where is the memory/hotspot temperature?** There is no
+documented NVML memory-junction temperature for consumer Blackwell (and
+no 12V-2x6 connector temp anywhere in the API). zionstats shows the
+hottest-part sensor only when your driver exposes it
+(`zionstats --doctor` lists `hottest-temp` per GPU); it never
+synthesizes a number.
+
+**Processes look wrong inside containers?** NVML per-process APIs report
+host-namespace PIDs -- run zionstats on the host (or with
+`--pid=host`) for correct attribution. If NVML itself fails to init in
+a container ("Failed to initialize NVML: Unknown Error"), the cgroups v2
+fix is `no-cgroups = true` in the nvidia-container-runtime config.
 
 **Graphs look like dots / broken?** Graphs default to the btop rendering
 engine — quadrant transition glyphs (`▗▟█`) with per-row gradient shading,
@@ -540,7 +565,7 @@ features are clean-room reimplementations from public behavior.
 | Mouse | yes | yes | yes | partial |
 | Options menu / presets | yes | yes | env-vars only | setup window |
 | Prometheus + Grafana built-in | yes | no | separate pkg | no |
-| Multi-vendor (AMD/Intel) | planned v0.5 | yes | no | yes |
+| Multi-vendor (AMD/Intel) | AMD yes, Intel experimental ([matrix](docs/MULTI-VENDOR.md)) | yes | no | yes |
 | Climate / condensation / blower automation | unique | no | no | no |
 | Verdict chips + alerts + session energy | unique | no | partial | no |
 | Record / replay / headless log | yes | no | partial | no |

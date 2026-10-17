@@ -32,6 +32,12 @@ zionstats is a local desktop tool. Its security surface is deliberately tiny:
     is no auth layer by default.
     Optionally set `[export] token` (config only, never CLI) to require
     a Bearer token on /metrics and /snapshot.
+  - Plug metering (v0.6): `zionstats_plug_power_watts` /
+    `zionstats_plug_energy_watt_hour` expose the wall power of your
+    configured cooling plugs. The `plug` label is your own config label
+    (not PII) and is always included regardless of
+    `expose_processes`; rename plugs in the config if that matters to
+    you.
 
 ## Secrets handling
 

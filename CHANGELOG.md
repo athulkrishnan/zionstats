@@ -1,5 +1,55 @@
 # Changelog
 
+## v0.6.0 -- every vendor, honest about it (2026-10-17)
+
+### Added
+- **Multi-vendor sampling** (`--provider auto|nvidia|amd|intel`, default
+  auto: NVML first, then a drm vendor scan): AMD via amdgpu sysfs
+  (gpu_busy_percent, mem_info_vram_*, power1_* microwatts, hwmon
+  edge/junction/memory temps, pwm, freq, pp_dpm_* tables) and Intel via
+  i915/xe sysfs (marked experimental).  Per-process stats on AMD and
+  Intel come from DRM fdinfo cycle deltas (kernel >= 5.14) through a
+  shared scanner; 256-client cap on highest VRAM.
+- **Sample tops-ups on NVIDIA** (all capability-probed, None when the
+  installed binding lacks them): hottest-part temperature
+  (NVML_TEMPERATURE_GPU_MAX), fan RPM, PCIe replay counter, and
+  historical clocks-event-reason counters.  Throttle decoding resolves
+  newer driver reason bits from the binding and surfaces unknown bits
+  as Bit-0xN -- the mask is open-ended and never hides.
+- **Plug power metering**: `power()` on every backend (Shelly Gen1/Gen2,
+  Tasmota Status 8, Kasa emeter, Home Assistant attributes; Tuya only
+  where the firmware DP is recognizable).  New exporter families
+  `zionstats_plug_power_watts` / `zionstats_plug_energy_watt_hour`,
+  per-plug session Wh, and a WALL line in the header.
+- Doctor reports the new per-GPU capabilities and per-plug metering.
+- Demo grows to four synthetic GPUs (two NVIDIA, one AMD with a
+  junction-temp arc peaking at 108 C, one Intel with the provider's
+  honest gaps); `--provider` selection and config coercion tested.
+
+### Changed
+- Exporter: every `zionstats_gpu_*` series gains an additive
+  `vendor` label (existing boards keep working); new optional series
+  `sensor="hottest"` temperature, `gpu_fan_rpm`,
+  `gpu_pcie_replay_counter_total`.
+- Insights prefers the hottest-part sensor for the near-slowdown alert;
+  the GPU card shows edge/hottest(j) when the driver exposes it.
+
+### Fixed
+- `zionstats --doctor` crashed with TypeError in the config-permissions
+  check (introduced with the 0600 warning); the check is now a
+  testable `config_mode_warning()` helper.
+- `[export] token` was accepted in config but never passed to the
+  exporter by the TUI/`--log` path.
+
+### Notes
+- Honest gaps are kept None and documented in `docs/MULTI-VENDOR.md`:
+  Intel power (no GPU-attributable sysfs path; RAPL is socket-level and
+  would be a lie), AMD memory-bandwidth utilization, Intel client VRAM
+  totals on older kernels, RTX 50 memory-junction temperature (no
+  documented NVML sensor -- never synthesized).
+- amd-smi integration stays out of scope by design: this codebase bans
+  subprocess, and amd-smi has no official Python binding.
+
 ## v0.5.0 -- Rust core: zionstatsd daemon + SHM TUI (2026-10-14)
 
 ### Added
