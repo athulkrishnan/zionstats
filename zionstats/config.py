@@ -35,6 +35,7 @@ DEFAULTS = {
     "panels_climate": False,
     "panels_alerts": True,
     "panels_procs": True,
+    "provider": "auto",      # auto | nvidia | amd | intel
 }
 
 WEATHER_DEFAULTS = {
@@ -142,6 +143,8 @@ class Config:
             self.values["layout"] = "auto"
         if self.values["sort"] not in ("pid", "user", "mem", "sm", "cpu"):
             self.values["sort"] = "pid"
+        if self.values.get("provider") not in ("auto", "nvidia", "amd", "intel"):
+            self.values["provider"] = "auto"
         try:
             wlat, wlon = float(self.weather["lat"]), float(self.weather["lon"])
             self.weather["lat"], self.weather["lon"] = wlat, wlon

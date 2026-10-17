@@ -31,6 +31,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--theme", choices=THEME_ORDER, help="UI theme (default: config/predawn)")
     p.add_argument("--layout", choices=("auto", "hero", "grid", "compact"))
     p.add_argument("--only", type=str, help="comma-separated GPU indices, e.g. 0,1")
+    p.add_argument("--provider", choices=("auto", "nvidia", "amd", "intel"),
+                   help="GPU data source (default: auto -- NVML, then drm scan)")
     p.add_argument("--fahrenheit", action="store_true", help="temperatures in Fahrenheit")
     p.add_argument("--graph-style",
                    choices=("btop", "block", "tty", "braille", "ascii"),
@@ -43,7 +45,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--export", metavar="[HOST:]PORT",
                    help="serve Prometheus /metrics + /snapshot (default bind "
                         "127.0.0.1; enables [export] for this session)")
-    p.add_argument("--demo", action="store_true", help="synthetic 2-GPU demo (no NVML needed)")
+    p.add_argument("--demo", action="store_true", help="synthetic 4-GPU demo (no hardware needed)")
     p.add_argument("--location", metavar="LAT,LON[,LABEL]",
                    help="override weather location for this session")
     p.add_argument("--no-weather", action="store_true", help="disable the weather layer")
@@ -93,7 +95,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.snapshot or args.once or args.log or args.record:
         try:
-            provider = make_provider(args)
+            provider = make_provider(args, cfg)
         except ProviderError as e:
             print(f"zionstats: {e}", file=sys.stderr)
             return 1
@@ -122,7 +124,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # TUI
     try:
-        provider = make_provider(args)
+        provider = make_provider(args, cfg)
     except ProviderError as e:
         print(f"zionstats: {e}\n(hint: --demo runs without a GPU)", file=sys.stderr)
         return 1

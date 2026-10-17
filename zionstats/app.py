@@ -12,7 +12,7 @@ from . import procs as procs_mod
 from .config import Config
 from .insights import AutoScale as InsightsAutoScale
 from .insights import Insights
-from .nvml_layer import DemoProvider, NvmlProvider, Sample
+from .nvml_layer import DemoProvider, NvmlProvider, ProviderError, Sample
 from .recorder import Recorder, ReplayProvider
 from .ui import layout, overlays
 from .ui.cells import Screen
@@ -1141,9 +1141,41 @@ def run_tui(provider, cfg: Config, **kw) -> None:
     curses.wrapper(app.run)
 
 
-def make_provider(args) -> Any:
+def make_provider(args, cfg: Config | None = None) -> Any:
+    """demo/replay modes are never auto-switched.  Otherwise: an explicit
+    --provider flag (or config `provider` key) builds that provider with a
+    hard failure when its hardware is absent; `auto` tries NVML first and
+    falls back to a drm vendor scan before re-raising the NVML error."""
     if args.demo:
         return DemoProvider(only=args.only)
     if args.replay:
         return ReplayProvider(args.replay)
-    return NvmlProvider(only=args.only)
+    choice = getattr(args, "provider", None)
+    if not choice and cfg is not None:
+        choice = str(cfg.values.get("provider", "auto") or "auto")
+    if not choice:
+        choice = "auto"
+    if choice == "nvidia":
+        return NvmlProvider(only=args.only)
+    if choice == "amd":
+        from .amd import AmdProvider
+
+        return AmdProvider(only=args.only)
+    if choice == "intel":
+        from .intel import IntelProvider
+
+        return IntelProvider(only=args.only)
+    # auto
+    try:
+        return NvmlProvider(only=args.only)
+    except ProviderError:
+        from .amd import AmdProvider
+        from .amd import discover_cards as amd_cards
+        from .intel import IntelProvider
+        from .intel import discover_cards as intel_cards
+
+        if amd_cards("/sys/class/drm"):
+            return AmdProvider(only=args.only)
+        if intel_cards("/sys/class/drm"):
+            return IntelProvider(only=args.only)
+        raise
