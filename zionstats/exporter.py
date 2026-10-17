@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from dataclasses import field as dataclasses_field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Thread
 
@@ -50,6 +51,8 @@ class Payload:
     expose_processes: bool = True
     version: str = ""
     paused: bool = False
+    # (plug name, live watts | None, session Wh | None) per metered plug
+    plugs: list = dataclasses_field(default_factory=list)
 
 
 def _esc(v: str) -> str:
@@ -86,7 +89,10 @@ def render_metrics(p: Payload) -> str:
     from .nvml_layer import Sample  # noqa: F401  (typing only)
 
     for s in p.samples:
-        labels = f'gpu="{s.index}",name="{_esc(gpu_name.get(s.index) or s.name or "?")}",uuid="{_esc(s.uuid or "")}"'
+        labels = (
+            f'gpu="{s.index}",name="{_esc(gpu_name.get(s.index) or s.name or "?")}",'
+            f'uuid="{_esc(s.uuid or "")}",vendor="{_esc(getattr(s, "vendor", "") or "nvidia")}"'
+        )
         series("gpu_utilization_percent",
                 "GPU utilization (%)", "gauge", labels, s.util_gpu)
         series("gpu_memory_utilization_percent",
@@ -159,6 +165,13 @@ def render_metrics(p: Payload) -> str:
                 series("process_utilization_percent",
                         "Per-process GPU utilization (%)", "gauge",
                         labels + f',kind="{kind}"', v)
+
+    for plug_name, watts, wh in getattr(p, "plugs", None) or []:
+        plabels = f'plug="{_esc(plug_name)}"'
+        series("plug_power_watts", "Plug wall power (W)", "gauge", plabels, watts)
+        series("plug_energy_watt_hour",
+                "Plug session energy (Wh; since zionstats start)",
+                "gauge", plabels, wh)
 
     out: list[str] = []
     for name, (help_text, mtype, rows) in families.items():
@@ -266,13 +279,15 @@ class Exporter:
         return True
 
     def publish(self, env: dict, samples: list, procs: list,
-                insights: dict, paused: bool = False) -> None:
+                insights: dict, paused: bool = False,
+                plugs: list | None = None) -> None:
         if self._httpd is None:
             return
         self._httpd.payload = Payload(
             env=env, samples=list(samples), procs=list(procs),
             insights=dict(insights), expose_processes=self._expose_processes,
             version=self._version, paused=paused,
+            plugs=list(plugs or []),
         )
 
     def stop(self) -> None:

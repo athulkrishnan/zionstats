@@ -31,11 +31,11 @@ def test_golden_new_field_series():
     s = mk_sample(temp_gpu_max=88, fan_rpm=2150, pcie_replay=7)
     text = render_metrics(Payload(env={}, samples=[s], procs=[], insights={}))
     assert ('zionstats_gpu_temperature_celsius{gpu="0",name="Weird \\"GPU\\" \\\\name",'
-            'uuid="GPU-test",sensor="hottest"} 88.0') in text
+            'uuid="GPU-test",vendor="nvidia",sensor="hottest"} 88.0') in text
     assert ('zionstats_gpu_fan_rpm{gpu="0",name="Weird \\"GPU\\" \\\\name",'
-            'uuid="GPU-test"} 2150.0') in text
+            'uuid="GPU-test",vendor="nvidia"} 2150.0') in text
     assert ('zionstats_gpu_pcie_replay_counter_total{gpu="0",name="Weird \\"GPU\\" \\\\name",'
-            'uuid="GPU-test"} 7.0') in text
+            'uuid="GPU-test",vendor="nvidia"} 7.0') in text
     # absent -> series omitted entirely
     s2 = mk_sample()
     text2 = render_metrics(Payload(env={}, samples=[s2], procs=[], insights={}))
@@ -43,6 +43,21 @@ def test_golden_new_field_series():
     assert "gpu_fan_rpm" not in text2
     assert "gpu_pcie_replay_counter_total" not in text2
     print("  golden new-field series (hottest/rpm/replay)")
+
+
+def test_golden_vendor_and_plug_series():
+    """v0.6: every zionstats_gpu_* label carries vendor; metered plugs add
+    the zionstats_plug_* families; an unmetered plug emits nothing."""
+    s = mk_sample(vendor="amd")
+    text = render_metrics(Payload(env={}, samples=[s], procs=[], insights={},
+                                  plugs=[("blower", 123.5, 4.2)]))
+    assert ',vendor="amd"} 42.0' in text, "vendor label on gpu series"
+    assert 'zionstats_plug_power_watts{plug="blower"} 123.5' in text
+    assert 'zionstats_plug_energy_watt_hour{plug="blower"} 4.2' in text
+    text2 = render_metrics(Payload(env={}, samples=[s], procs=[], insights={},
+                                   plugs=[("ghost", None, None)]))
+    assert "zionstats_plug_" not in text2, "unmetered plug omits both series"
+    print("  vendor label + plug series golden")
 
 
 def test_golden_full_sample():
@@ -53,8 +68,9 @@ def test_golden_full_sample():
     assert lines[0] == "# HELP zionstats_gpu_utilization_percent GPU utilization (%)"
     assert lines[1] == "# TYPE zionstats_gpu_utilization_percent gauge"
     assert ('zionstats_gpu_utilization_percent{gpu="0",name="Weird \\"GPU\\" '
-            '\\\\name",uuid="GPU-test"} 42.0') in lines
-    assert 'zionstats_gpu_power_watts{gpu="0",name="Weird \\"GPU\\" \\\\name",uuid="GPU-test"} 120.0' in lines
+            '\\\\name",uuid="GPU-test",vendor="nvidia"} 42.0') in lines
+    assert ('zionstats_gpu_power_watts{gpu="0",name="Weird \\"GPU\\" '
+            '\\\\name",uuid="GPU-test",vendor="nvidia"} 120.0') in lines
     assert 'sensor="gpu"} 55.0' in text
     assert 'sensor="memory"} 50.0' in text
     assert 'zionstats_gpu_pcie_rx_bytes_per_second{gpu="0"' in text
@@ -221,6 +237,7 @@ def test_live_loopback_token_auth():
 if __name__ == "__main__":
     test_golden_full_sample()
     test_golden_new_field_series()
+    test_golden_vendor_and_plug_series()
     test_none_fields_omit_series_never_nan()
     test_insights_and_process_series()
     test_empty_payload()

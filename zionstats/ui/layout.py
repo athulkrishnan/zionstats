@@ -177,6 +177,9 @@ def draw_header(scr: Screen, W: int, env: dict, agg: dict, app) -> None:
     if agg.get("power_w") is not None:
         cap = agg.get("power_limit_w")
         parts.append((f"ΣPWR {agg['power_w']:.0f}W" + (f"/{cap:.0f}W" if cap else ""), None))
+    wall = getattr(app, "wall_watts", None)
+    if wall is not None:
+        parts.append((f"WALL {wall:.0f}W", None))
     if agg.get("mem_used") is not None:
         parts.append((f"ΣMEM {agg['mem_used_gib']:.1f}/{agg['mem_total_gib']:.1f}GiB ({agg['mem_frac']:.0%})", None))
     parts.append((f"load {loadavg()}", None))

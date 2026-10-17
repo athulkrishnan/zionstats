@@ -25,6 +25,8 @@ class Plug:
     def off(self) -> None: ...
     def status(self) -> bool | None:  # None = unknown/not reachable
         return None
+    def power(self) -> float | None:  # live wall watts; None = no meter
+        return None
     def close(self) -> None: ...
 
 
@@ -46,6 +48,20 @@ def _http_json(url: str, timeout: float = 4.0, method: str = "GET",
         return raw
 
 
+def _kasa_watts(r: Any) -> float | None:
+    """emeter get_realtime result -> watts.  New firmware reports
+    power_mw (milliwatts); old firmware reports power (watts)."""
+    if not isinstance(r, dict):
+        return None
+    mw = r.get("power_mw")
+    if isinstance(mw, (int, float)) and mw >= 0:
+        return float(mw) / 1000.0
+    p = r.get("power")
+    if isinstance(p, (int, float)) and p >= 0:
+        return float(p)
+    return None
+
+
 # ---------------------------------------------------------------- mock
 
 
@@ -53,11 +69,13 @@ class MockPlug(Plug):
     """For --demo and tests: records commands, simulates a real device,
     can be scripted to fail (fail_next) for retry-path testing."""
 
-    def __init__(self, name: str = "blower (mock)", fail_next: int = 0) -> None:
+    def __init__(self, name: str = "blower (mock)", fail_next: int = 0,
+                 power_w: float | None = None) -> None:
         self.name = name
         self.state = False
         self.commands: list[str] = []
         self.fail_next = fail_next
+        self.power_w = power_w
 
     def _maybe_fail(self, cmd: str) -> None:
         self.commands.append(cmd)
@@ -75,6 +93,9 @@ class MockPlug(Plug):
 
     def status(self) -> bool | None:
         return self.state
+
+    def power(self) -> float | None:
+        return self.power_w
 
 
 # ---------------------------------------------------------------- tuya
@@ -129,6 +150,24 @@ class TuyaPlug(Plug):
                 return bool(dps[k])
         return None  # no readback DP on this firmware
 
+    def power(self) -> float | None:
+        """Live wall watts from the firmware's metering DP, when the
+        firmware exposes one under a name we can recognize.  DP ids vary
+        wildly across Tuya firmwares; anything unrecognized stays None
+        rather than guessing a scale."""
+        try:
+            data = self._dev.status()
+        except Exception:
+            return None
+        if not isinstance(data, dict) or data.get("Error"):
+            return None
+        dps = data.get("dps", {})
+        for k in ("power", "power_w", "pow"):
+            v = dps.get(k) if isinstance(dps, dict) else None
+            if isinstance(v, (int, float)) and 0 <= v <= 4000:
+                return float(v)
+        return None
+
 
 # ---------------------------------------------------------------- kasa
 
@@ -182,6 +221,24 @@ class KasaPlug(Plug):
         except Exception:
             return None
 
+    def power(self) -> float | None:
+        """emeter get_realtime -> watts.  None when the plug has no meter
+        (HS103-class) or the API shape is unrecognized."""
+        try:
+            dev = self._connect()
+            import asyncio
+
+            async def _p():
+                em = getattr(dev, "emeter", None)
+                if em is None:
+                    return None
+                return await em.get_realtime()
+
+            r = asyncio.run(_p())
+        except Exception:
+            return None
+        return _kasa_watts(r)
+
 
 # ---------------------------------------------------------------- shelly
 
@@ -219,6 +276,22 @@ class ShellyPlug(Plug):
         except PlugError:
             return None
 
+    def power(self) -> float | None:
+        """Gen1 GET /relay/{ch} -> 'power'; Gen2 Switch.GetStatus -> 'power'
+        (watts).  None when the relay has no meter."""
+        try:
+            if self.gen == 2:
+                d = _http_json(f"{self.host}/rpc/Switch.GetStatus?id={self.channel}")
+            else:
+                d = _http_json(f"{self.host}/relay/{self.channel}")
+            if isinstance(d, dict):
+                v = d.get("power")
+                if isinstance(v, (int, float)) and v >= 0:
+                    return float(v)
+        except PlugError:
+            pass
+        return None
+
 
 # ---------------------------------------------------------------- tasmota
 
@@ -241,6 +314,22 @@ class TasmotaPlug(Plug):
             d = _http_json(f"{self.host}/cm?cmnd=Power")
             if isinstance(d, dict):
                 return str(d.get("Power", "")).upper() == "ON"
+        except PlugError:
+            pass
+        return None
+
+    def power(self) -> float | None:
+        """Status 8 -> StatusSNS.Energy.Power (watts); tolerates both
+        'Energy' and 'energy' key casings seen across Tasmota versions."""
+        try:
+            d = _http_json(f"{self.host}/cm?cmnd=Status%208")
+            if isinstance(d, dict):
+                sns = d.get("StatusSNS") or {}
+                energy = sns.get("Energy") or sns.get("energy") or {}
+                if isinstance(energy, dict):
+                    v = energy.get("Power")
+                    if isinstance(v, (int, float)) and v >= 0:
+                        return float(v)
         except PlugError:
             pass
         return None
@@ -275,6 +364,21 @@ class HAPlug(Plug):
             d = _http_json(f"{self.base}/api/states/{self.entity}", headers=self.headers)
             if isinstance(d, dict):
                 return d.get("state") == "on"
+        except PlugError:
+            pass
+        return None
+
+    def power(self) -> float | None:
+        """Entity attributes: 'power' or 'current_power_w' (accept either
+        naming); None when the entity exposes no wattage."""
+        try:
+            d = _http_json(f"{self.base}/api/states/{self.entity}", headers=self.headers)
+            if isinstance(d, dict):
+                attrs = d.get("attributes") or {}
+                for k in ("power", "current_power_w"):
+                    v = attrs.get(k)
+                    if isinstance(v, (int, float)) and v >= 0:
+                        return float(v)
         except PlugError:
             pass
         return None

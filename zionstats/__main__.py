@@ -322,10 +322,15 @@ def doctor() -> int:
             try:
                 plug = build_plug(pc)
                 st = plug.status()
+                try:
+                    pw = plug.power()
+                except Exception:
+                    pw = None
                 checks.append((f"plug {pc.get('name', '?')} ({pc.get('backend')})",
                                st is not None,  # False = healthy readback, just OFF
                                {True: "reachable, ON", False: "reachable, OFF",
-                                None: "not reachable / no readback"}[st]))
+                                None: "not reachable / no readback"}[st]
+                               + (f" · metering: {'yes' if pw is not None else 'no'}")))
             except Exception as e:
                 checks.append((f"plug {pc.get('name', '?')} ({pc.get('backend')})",
                                False, str(e)[:100]))

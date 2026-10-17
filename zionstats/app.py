@@ -27,6 +27,20 @@ _BOUND_CHARS = frozenset(
 )
 
 
+def _integrate_plug_energy(energy: dict, last: dict,
+                           prev_ts: float | None, now_ts: float,
+                           readings: dict) -> None:
+    """Rectangular integration (same fallback math as Insights) of plug
+    wall watts into per-plug session Wh; None readings update nothing."""
+    for name, w in readings.items():
+        if w is None:
+            continue
+        last[name] = w
+        if prev_ts is not None:
+            dt = max(0.0, min(120.0, now_ts - prev_ts))
+            energy[name] = energy.get(name, 0.0) + w * dt / 3600.0
+
+
 class App:
     def __init__(self, provider, cfg: Config, theme_name: str | None = None,
                  interval: float | None = None, layout_mode: str | None = None,
@@ -165,6 +179,10 @@ class App:
 
         # ---- v0.2: cooling controller
         self.controller: Any = None
+        # v0.6: plug wall-power metering (whenever a controller has plugs)
+        self._plug_energy: dict[str, float] = {}
+        self._plug_power_last: dict[str, float] = {}
+        self._plug_prev_ts: float | None = None
         cmode = getattr(args, "cooling", None) if args is not None else None
         if self.is_demo:
             # demo showcase: mock plug, dry-run only -- never real mains
@@ -172,8 +190,9 @@ class App:
             from .plugs import MockPlug
 
             cc = CoolingConfig(mode="dry_run")
-            self.controller = CoolingController([MockPlug("blower (mock)")], cc,
-                                                on_event=self._cooling_event)
+            self.controller = CoolingController(
+                [MockPlug("blower (mock)", power_w=42.0)], cc,
+                on_event=self._cooling_event)
             self.cooling_mode = "dry_run"
         elif cfg.cooling.get("enabled"):
             from .cooling import CoolingController, config_from_section
@@ -267,11 +286,20 @@ class App:
                 if now_ts - getattr(self, "_last_readback", 0.0) >= period:
                     self._last_readback = now_ts
                     statuses = []
+                    readings = {}
                     for plug in self.controller.plugs:
                         try:
                             statuses.append(plug.status())
                         except Exception:
                             statuses.append(None)
+                        try:
+                            readings[getattr(plug, "name", "plug")] = plug.power()
+                        except Exception:
+                            readings[getattr(plug, "name", "plug")] = None
+                    _integrate_plug_energy(
+                        self._plug_energy, self._plug_power_last,
+                        self._plug_prev_ts, now_ts, readings)
+                    self._plug_prev_ts = now_ts
                     definitive = None
                     real = [x for x in statuses if x is not None]
                     if statuses and len(real) == len(statuses):
@@ -284,11 +312,23 @@ class App:
                 self.proc_rows,
             )
         if self.exporter is not None:
+            plug_names = sorted(set(self._plug_energy) | set(self._plug_power_last))
+            plug_payload = [(n, self._plug_power_last.get(n),
+                             self._plug_energy.get(n)) for n in plug_names]
             self.exporter.publish(
                 self.env, [self.samples[i] for i in self.indices if i in self.samples],
                 self.proc_rows, self.insights, paused=self.paused,
+                plugs=plug_payload,
             )
         self._last_sample = time.time()
+
+    @property
+    def wall_watts(self) -> float | None:
+        """Sum of the last metered plug readings; None until one plug
+        reports a watt value."""
+        if not self._plug_power_last:
+            return None
+        return sum(self._plug_power_last.values())
 
     def _refresh_procs(self) -> None:
         all_procs = self.provider.processes()
