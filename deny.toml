@@ -19,3 +19,6 @@ ignore = ["RUSTSEC-2024-0436"]
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
+# the Rust core is pinned as a git dependency on this repo (WI-7);
+# tag-pinned, first-party
+allow-git = ["https://github.com/athulkrishnan/zionstats-rs"]

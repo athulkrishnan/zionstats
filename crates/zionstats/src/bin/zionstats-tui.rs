@@ -14,20 +14,29 @@ struct Cli {
     interval: f64,
     #[arg(long)]
     readonly: bool,
+    /// UI theme (16 built-ins; garbage falls back to predawn)
+    #[arg(long)]
+    theme: Option<String>,
     /// hidden: exit after N ms (launch benchmark)
     #[arg(long, hide = true)]
     exit_after_ms: Option<u64>,
     #[arg(long, hide = true)]
     run_once_frame: bool,
+    /// hidden: report attach->first-draw latency in the bench line
+    #[arg(long, hide = true)]
+    print_first_frame_ms: bool,
 }
 
 fn main() {
     let cli = Cli::parse();
+    let cfg = zionstats_core::config::load(&zionstats_core::config::config_path(None));
     let code = run(TuiOpts {
+        theme_name: cli.theme.unwrap_or(cfg.theme),
         interval_s: cli.interval,
         readonly: cli.readonly,
         exit_after_ms: cli.exit_after_ms,
         run_once_frame: cli.run_once_frame,
+        print_first_frame_ms: cli.print_first_frame_ms,
     });
     std::process::exit(code);
 }

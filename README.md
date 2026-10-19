@@ -282,8 +282,9 @@ zionstats --export 127.0.0.1:9835     # or [export] enabled = true in config
 > The Rust workspace now lives canonically at
 > [zionstats-rs](https://github.com/athulkrishnan/zionstats-rs) (v0.6+:
 > one-command demo, calibrated 4 Hz TUI, `--check-config`, completions,
-> criterion benches, published benchmarks). `crates/` here is a frozen
-> v0.5 mirror kept for this repo's CI.
+> criterion benches, published benchmarks).  The Rust core lives
+> canonically in zionstats-rs; since v0.6.0 this repo pins it as a git
+> dependency at tag v0.7.0 for its release binaries -- no vendored copy.
 
 v0.5 adds a Rust re-architecture beside the Python TUI (the Python app above
 is unchanged and stays fully supported):

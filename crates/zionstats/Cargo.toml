@@ -8,14 +8,27 @@ authors.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
+[package.metadata.notes]
+core = "the Rust core lives canonically in zionstats-rs; this repo pins it as a git dependency at tag v0.7.0"
+
 [[bin]]
 name = "zionstats"
 path = "src/main.rs"
 
+[[bin]]
+name = "zionstatsd"
+path = "src/bin/zionstatsd.rs"
+
+[[bin]]
+name = "zionstats-tui"
+path = "src/bin/zionstats-tui.rs"
+
 [dependencies]
-zionstats-core.workspace = true
-zionstats-daemon.workspace = true
-zionstats-tui = { workspace = true, default-features = false }
+zionstats-core = { git = "https://github.com/athulkrishnan/zionstats-rs", tag = "v0.7.0", features = ["nvml"] }
+zionstats-daemon = { git = "https://github.com/athulkrishnan/zionstats-rs", tag = "v0.7.0", features = ["nvml"] }
+zionstats-tui = { git = "https://github.com/athulkrishnan/zionstats-rs", tag = "v0.7.0" }
 clap.workspace = true
+clap_complete.workspace = true
 log.workspace = true
 env_logger.workspace = true
+libc.workspace = true

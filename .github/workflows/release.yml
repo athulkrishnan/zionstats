@@ -48,7 +48,7 @@ jobs:
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: aarch64-linux-gnu-gcc
         run: |
-          cargo build --release --target ${{ matrix.target }} -p zionstats-daemon -p zionstats-tui -p zionstats
+          cargo build --release --target ${{ matrix.target }} -p zionstats --bins
           mkdir -p release
           for bin in zionstats zionstatsd zionstats-tui; do
             cp "target/${{ matrix.target }}/release/$bin" release/
